@@ -1,0 +1,115 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>{{ post['title'] if post else 'Post not found' }}</title>
+<style>
+    .comment-card { transition: all 0.3s ease; border-radius: 12px; }
+    .commenter-link { color: #212529 !important; font-weight: 600; text-decoration: none; }
+    .commenter-link:hover { text-decoration: underline; color: #0d6efd !important; }
+    .mention-link { color: #0d6efd !important; font-weight: bold; text-decoration: none; }
+
+    .post-image { 
+        max-width: 100%; 
+        height: auto; 
+        border-radius: 12px; 
+        margin: 0 auto 15px; 
+        display: block; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .italic { font-style: italic; }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="container mt-4">
+    <div class="mb-3">
+        <a href="{{ url_for('index') }}" class="text-decoration-none text-muted small">
+            <i class="fa fa-arrow-left"></i> Back to Feed
+        </a>
+    </div>
+
+    <!-- Post Card -->
+    <div class="card mb-4 shadow-sm border-0">
+        <div class="card-body p-4">
+            <h2 class="card-title fw-bold">{{ post['title'] | mention | safe }}</h2>
+            <h6 class="text-muted mb-3">
+                By <a href="{{ url_for('userprofile', username=post['username']) }}" class="commenter-link">@{{ post['username'] }}</a> 
+                | {{ post['created_at'] }}
+            </h6>
+            <hr>
+
+            {% if post['image_url'] %}
+            <div class="post-image-container text-center mb-4">
+                <img src="{{ post['image_url'] }}" class="post-image img-fluid">
+            </div>
+            {% endif %}
+
+            <p class="card-text fs-5" style="white-space: pre-wrap;">{{ post['content'] | mention | safe }}</p>
+
+            <!-- Event post details (if applicable) -->
+            {% if post['post_type'] == 'event' %}
+            <hr>
+            <div class="event-details mb-3">
+                {% if post['location'] %}
+                <p><strong>Location:</strong> <a href="https://maps.google.com/?q={{ post['location'] }}" target="_blank">{{ post['location'] }}</a></p>
+                {% endif %}
+                {% if post['event_date'] and post['event_time'] %}
+                <p><strong>When:</strong> {{ post['event_date'] }} at {{ post['event_time'] }}</p>
+                {% endif %}
+                {% if post['organiser_id'] %}
+                <p><strong>Organiser:</strong> <a href="{{ url_for('userprofile', username=post['organiser_username']) }}" class="commenter-link">@{{ post['organiser_username'] }}</a></p>
+                {% endif %}
+                {% if post['community_id'] %}
+                <p><strong>Community:</strong> <a href="{{ url_for('community', community_id=post['community_id']) }}">{{ post['community_name'] }}</a></p>
+                {% endif %}
+            </div>
+
+            <!-- Event registration / chat buttons -->
+{% if not is_registered %}
+<form method="POST" class="d-inline">
+    <input type="hidden" name="register_event" value="1">
+    <button type="submit" class="btn btn-success me-2">Register</button>
+</form>
+{% else %}
+<span class="badge bg-success me-2">Registered</span>
+{% endif %}
+
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Comments Section -->
+    <h4>Comments</h4>
+    <hr>
+
+    {% if session.get('username') %}
+    <form method="POST" class="mb-4">
+        <input type="hidden" name="post_id" value="{{ post['post_id'] }}">
+        <div class="mb-2">
+            <textarea name="content" class="form-control shadow-sm" rows="3" placeholder="Join the discussion..." required></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary rounded-pill px-4 shadow-sm">Submit Comment</button>
+    </form>
+    {% endif %}
+
+    <div id="commentsList">
+        {% if comments %}
+            {% for comment in comments %}
+            <div class="card mb-2 shadow-sm comment-card border-0">
+                <div class="card-body position-relative">
+
+
+                    <h6 class="card-subtitle text-muted mb-1 small">
+                        <a href="{{ url_for('userprofile', username=comment['username']) }}" class="commenter-link">@{{ comment['username'] }}</a> 
+                        | {{ comment['created_at'] }}
+                    </h6>
+                    <div class="card-text mb-2">{{ comment['content'] | mention | safe }}</div>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p class="text-muted italic px-2">No comments yet. Be the first to say something!</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

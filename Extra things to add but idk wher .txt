@@ -1,0 +1,9 @@
+Hi its areen here are some explanations for code esp flask
+
+1. GET vs POST vs 
+
+                {% if logged_in and username != profile['username'] %}
+                <a href="{{ url_for('chat', username=profile['username']) }}" class="btn btn-primary">
+                    Message
+                </a>
+                {% endif %}

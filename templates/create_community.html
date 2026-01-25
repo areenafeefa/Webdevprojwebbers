@@ -1,0 +1,27 @@
+{% extends 'base.html'%}
+{% block head %}
+{% endblock %}
+{% block body%}
+
+{% if logged_in %}
+<a href="{{ url_for('create_community') }}" class="btn btn-success mb-3">Create Community</a>
+{% endif %}
+<div class="container">
+    <h2 class="mb-4">Create a New Community</h2>
+
+    <form method="POST">
+        <div class="mb-3">
+            <label for="name" class="form-label">Community Name</label>
+            <input type="text" class="form-control" id="name" name="name" placeholder="e.g., Python" required>
+        </div>
+
+        <div class="mb-3">
+            <label for="description" class="form-label">Description (optional)</label>
+            <textarea class="form-control" id="description" name="description" rows="3" placeholder="Describe your community"></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Create Community</button>
+    </form>
+
+</div>
+{% endblock %}

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block body %}
+<link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
+
+<div class="game-container">
+    <a href="{{ url_for('find_a_friend_hub') }}" class="btn-back">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-left" viewBox="0 0 16 16">
+          <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
+        </svg>
+        Back to Hub
+    </a>
+
+    <div class="row h-100">
+        <div class="col-md-7 d-flex flex-column justify-content-center align-items-start">
+            <h1 class="display-4 fw-bold mb-3 text-capitalize" style="color: #333;">
+                {{ game.replace('_', ' ') }}
+            </h1>
+            
+            <div class="p-4 bg-white rounded shadow-sm border w-100 mb-4">
+                <h5 class="text-muted small fw-bold text-uppercase mb-3">Your Performance</h5>
+                <div class="d-flex align-items-baseline">
+                    <span class="display-3 fw-bold me-2" style="color: #667eea;">
+                        {% if game == 'bingo' %}{{ stats['streak_bingo'] }}
+                        {% elif game == 'crossword' %}{{ stats['streak_crossword'] }}
+                        {% else %}{{ stats['streak_song'] }}{% endif %}
+                    </span>
+                    <span class="text-muted fs-5">Day Streak</span>
+                </div>
+            </div>
+
+            {% if game == 'bingo' %}
+                <a href="{{ url_for('game_bingo_play') }}" class="btn btn-primary btn-lg w-100 py-3 rounded-3 fw-bold shadow-sm">
+                    Play Bingo Now
+                </a>
+            {% else %}
+                <a href="{{ url_for('game_lobby', game=game) }}" class="btn btn-primary btn-lg w-100 py-3 rounded-3 fw-bold shadow-sm">
+                    Find a Partner & Play
+                </a>
+            {% endif %}
+        </div>
+
+        <div class="col-md-5">
+            <div class="card border-0 bg-transparent h-100">
+                <div class="card-body overflow-auto px-0">
+                    <h5 class="fw-bold mb-3 text-muted">Friends' Activity</h5>
+                    {% if activity %}
+                        <div class="list-group list-group-flush bg-transparent">
+                        {% for act in activity %}
+                            <div class="list-group-item bg-transparent px-0 py-3 border-bottom">
+                                <div class="d-flex w-100 justify-content-between">
+                                    <strong style="color: #333;">{{ act.username }}</strong>
+                                    <small class="text-muted">Recently</small>
+                                </div>
+                                <p class="mb-1 text-muted small">
+                                    {% if act.note %}
+                                        "{{ act.note }}"
+                                    {% else %}
+                                        Played a game
+                                    {% endif %}
+                                </p>
+                            </div>
+                        {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="text-muted small">No recent activity from friends.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

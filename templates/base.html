@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
+
+    <title>{% block title %}MySite{% endblock %}</title>
+    {% block head %}{% endblock %}
+</head>
+<body>
+
+<!-- TOP NAVBAR -->
+<nav id="topnavbar" class="navbar navbar-expand-lg navbar-light border-bottom">
+    <div class="container-fluid">
+
+        <!-- Sidebar toggle + Brand -->
+        <div class="d-flex align-items-center">
+            <button id="sidebarToggle" class="btn me-2">
+                <i class="fa fa-bars"></i>
+            </button>
+            <a class="navbar-brand mb-0" href="{{ url_for('index') }}">WEBDEV</a>
+        </div>
+
+        <!-- Mobile collapse button -->
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <!-- Navbar links -->
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav ms-auto align-items-center">
+
+                {% if logged_in %}
+                <!-- Notification Bell -->
+                <li class="nav-item dropdown me-3 position-relative">
+                    {% set unread_count = count_unread_notifications(session['user_id']) %}
+                    <a class="nav-link dropdown-toggle position-relative" href="#" id="notifDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fa fa-bell"></i>
+                        {% if unread_count > 0 %}
+                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                            {{ unread_count }}
+                        </span>
+                        {% endif %}
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-end p-2" aria-labelledby="notifDropdown" style="min-width:300px; max-height:400px; overflow-y:auto;">
+                        {% set notifications = get_notifications(session['user_id'], unread_only=False) %}
+                        {% if notifications %}
+                            {% for notif in notifications %}
+                            <li>
+                                <a class="dropdown-item {% if notif.is_read == 0 %}fw-bold{% endif %}" href="{{ notif.link or '#' }}">
+                                    {{ notif.message }}<br>
+                                    <small class="text-muted">{{ notif.created_at }}</small>
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            {% endfor %}
+                        {% else %}
+                            <li><span class="dropdown-item text-muted">No notifications</span></li>
+                        {% endif %}
+                        <li>
+                            <form method="POST" action="{{ url_for('read_all_notifications') }}">
+                                <button type="submit" class="btn btn-sm btn-outline-success w-100">Mark all as read</button>
+                            </form>
+                        </li>
+                    </ul>
+                </li>
+
+                <!-- Profile + Logout -->
+                <li class="nav-item d-flex align-items-center me-3">
+                    <img src="{{ url_for('static', filename='profile.jpg') }}"
+                         class="rounded-circle me-2"
+                         width="40" height="40">
+                    <a class="nav-link p-0"
+                       href="{{ url_for('userprofile', username=username) }}">
+                        {{ username }}
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
+                </li>
+
+                {% else %}
+                <!-- Login / Register -->
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#loginModal">Login</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#registerModal">Register</a>
+                </li>
+                {% endif %}
+
+            </ul>
+        </div>
+    </div>
+</nav>
+
+<!-- MAIN LAYOUT -->
+<div id="layoutWrapper" class="d-flex w-100">
+
+    <!-- SIDE NAV -->
+    <nav id="sidebar" class="border-end">
+        <ul id="sidenav" class="nav flex-column p-3">
+            <li class="nav-item">
+                <a class="nav-link" href="{{ url_for('index') }}">Home</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="collapse" href="#communityMenu">Explore</a>
+                <div class="collapse" id="communityMenu">
+                    <ul class="nav flex-column ms-3">
+                        {% for community in global_communities %}
+                        <li class="nav-item">
+                            <a class="nav-link"
+                               href="{{ url_for('community', community_id=community['community_id']) }}">
+                                {{ community['name'] }}
+                            </a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="collapse" href="#usercommunityMenu">Communities</a>
+                <div class="collapse" id="usercommunityMenu">
+                    <ul class="nav flex-column ms-3">
+                        {% for community in user_communities %}
+                        <li class="nav-item">
+                            <a class="nav-link" href="{{ url_for('community', community_id=community['community_id']) }}">{{ community['name'] }}</a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="{{ url_for('find_a_friend_hub') }}">Find a Friend</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="{{ url_for('my_messages') }}">My Messages</a>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- PAGE CONTENT -->
+    <div id="maincontent" class="flex-grow-1 p-4">
+        {% block body %}{% endblock %}
+    </div>
+</div>
+
+<!-- LOGIN MODAL -->
+<div class="modal fade" id="loginModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Login</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                {% with messages = get_flashed_messages(category_filter=['login_error']) %}
+                    {% if messages %}
+                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                            {{ messages[0] }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                    {% endif %}
+                {% endwith %}
+                <form method="POST" action="{{ url_for('login') }}">
+                    <div class="mb-3">
+                        <label class="form-label">Username</label>
+                        <input name="username" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Password</label>
+                        <input type="password" name="password" class="form-control" required>
+                    </div>
+                    <button class="btn btn-primary w-100">Sign In</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- REGISTER MODAL -->
+<div class="modal fade" id="registerModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Register</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="registerForm" method="POST" action="{{ url_for('register') }}">
+                    <!-- form fields here -->
+                    <button type="submit" class="btn btn-primary w-100">Register</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+
+<!-- Sidebar toggle + form validation -->
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const toggleBtn = document.getElementById("sidebarToggle");
+    const sidebar = document.getElementById("sidebar");
+    const layout = document.getElementById("layoutWrapper");
+
+    toggleBtn?.addEventListener("click", function () {
+        if (window.innerWidth <= 992) {
+            sidebar?.classList.toggle("show");
+        } else {
+            sidebar?.classList.toggle("collapsed");
+            layout?.classList.toggle("sidebar-collapsed");
+        }
+    });
+
+    const registerForm = document.getElementById('registerForm');
+    if (registerForm) {
+        registerForm.addEventListener('input', (e) => {
+            const input = e.target;
+            if (input.checkValidity()) {
+                input.classList.remove('is-invalid');
+                input.classList.add('is-valid');
+            } else {
+                input.classList.remove('is-valid');
+                input.classList.add('is-invalid');
+            }
+        });
+    }
+
+    {% with messages = get_flashed_messages(category_filter=['login_error']) %}
+        {% if messages %}
+            var loginModal = new bootstrap.Modal(document.getElementById('loginModal'));
+            loginModal.show();
+        {% endif %}
+    {% endwith %}
+});
+</script>
+
+</body>
+</html>

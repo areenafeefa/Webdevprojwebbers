@@ -1,0 +1,21 @@
+{% extends 'base.html'%}
+
+{% block head %}
+<title> Whast up </title>
+{% endblock %}
+
+{% block body%}
+
+<form method = "POST" action="{{ url_for('register') }}">
+
+    <input type = "text" name = "username" placeholder = "Username">
+    <input type = "password" name = "password" placeholder = "Password">
+    <input type = "email" name = "email" placeholder = "mail@mail.com">
+    <input type = "phone" name = "phone" placeholder = "+65 72123231">
+
+    <input type = "submit" name = "submit">
+
+</form>
+
+{% endblock %}
+    

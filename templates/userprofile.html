@@ -1,0 +1,220 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Profile - {{ profile['display_name'] }}</title>
+<style>
+    /* Tab and Interaction Styling */
+    .nav-link { cursor: pointer; color: #6c757d; font-weight: 500; }
+    .nav-link.active { color: #0d6efd !important; font-weight: 700; }
+    .static-heart { cursor: default !important; text-decoration: none !important; }
+    .item-wrapper { transition: all 0.4s ease; }
+    
+    /* Navigation link styling: Bold black text, underlines on hover */
+    .metadata-link { color: #212529 !important; text-decoration: none; font-weight: 600; }
+    .metadata-link:hover { text-decoration: underline; color: #0d6efd !important; }
+
+    /* Image Preview Styling */
+    .post-img-container { max-width: 400px; margin-top: 12px; }
+    .post-img { 
+        width: 100%; 
+        max-height: 250px; 
+        object-fit: cover; 
+        border-radius: 8px; 
+        border: 1px solid #dee2e6;
+        display: block;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        transition: transform 0.2s;
+    }
+    .post-img:hover { transform: scale(1.01); }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="container mt-4">
+
+    <div class="mb-3">
+        <a href="{{ url_for('index') }}" class="text-decoration-none text-muted small">
+            <i class="fa fa-arrow-left"></i> Back to Home
+        </a>
+    </div>
+
+    <div class="d-flex align-items-center mb-4">
+        <div class="flex-shrink-0">
+            <img src="{{ url_for('static', filename='img.png') }}" class="img-fluid rounded-circle border shadow-sm" style="width:100px; height:100px; object-fit: cover;">
+        </div>
+
+        <div class="ms-4 flex-grow-1">
+            <div class="d-flex align-items-center">
+                <h2 class="mb-0 me-2 fw-bold">{{ profile['display_name'] }}</h2>
+                <span class="badge {{ 'bg-dark' if profile['age'] >= 60 else 'bg-primary' }} rounded-pill">
+                    {{ 'Elderly' if profile['age'] >= 60 else 'Youth' }}
+                </span>
+            </div>
+            <h6 class="text-muted mb-2">@{{ profile['username'] }}</h6>
+            <p class="mb-0 text-dark">{{ profile['bio'] | mention | safe if profile['bio'] else "No bio yet." }}</p>
+        </div>
+
+        {% if session.get('username') and session.get('username') != profile['username'] %}
+        <div class="ms-auto">
+            <a href="{{ url_for('chat', username=profile['username']) }}" class="btn btn-primary rounded-pill px-4 shadow-sm">
+                <i class="fa fa-envelope me-1"></i> Message
+            </a>
+        </div>
+        {% endif %}
+    </div>
+
+    <ul class="nav nav-tabs border-0" id="profileTabs" role="tablist">
+        <li class="nav-item">
+            <button class="nav-link active border-0 bg-transparent" id="communities-tab" data-bs-toggle="tab" data-bs-target="#communities" type="button" role="tab">Communities</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link border-0 bg-transparent" id="posts-tab" data-bs-toggle="tab" data-bs-target="#posts" type="button" role="tab">Posts</button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link border-0 bg-transparent" id="comments-tab" data-bs-toggle="tab" data-bs-target="#comments" type="button" role="tab">Comments</button>
+        </li>
+    </ul>
+    <hr class="mt-0 mb-4">
+
+    <div class="tab-content">
+        
+        <div class="tab-pane fade show active" id="communities" role="tabpanel">
+            <div class="row g-3">
+                {% if communities %}
+                    {% for c in communities %}
+                    <div class="col-md-4">
+                        <div class="card h-100 shadow-sm border-0">
+                            <div class="card-body d-flex flex-column">
+                                <h5 class="card-title fw-bold">{{ c['name'] }}</h5>
+                                <p class="card-text text-muted small">{{ c['description'] or "No description available." }}</p>
+                                <a href="{{ url_for('community', community_id=c['community_id']) }}" class="btn btn-sm btn-outline-primary mt-auto rounded-pill">View Community</a>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted px-2 italic">Not joined any communities yet.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="tab-pane fade" id="posts" role="tabpanel">
+            {% if posts %}
+                {% for post in posts %}
+                <div class="mb-3 item-wrapper">
+                    <div class="card shadow-sm border-0">
+                        <div class="card-body position-relative">
+                            {% if session.get('username') == post['username'] %}
+                            <div class="position-absolute top-0 end-0 p-2">
+                                <button type="button" class="btn btn-link text-danger p-0 border-0" onclick="deletePost(this, {{ post['post_id'] }})">
+                                    <i class="fa fa-trash"></i>
+                                </button>
+                            </div>
+                            {% endif %}
+
+                            <h4 class="card-title text-dark fw-bold">{{ post['title'] | mention | safe }}</h4>
+                            <h6 class="card-subtitle mb-2 text-muted small">
+                                <a href="{{ url_for('userprofile', username=post['username']) }}" class="metadata-link">@{{ post['username'] }}</a> | {{ post['created_at'] }}
+                            </h6>
+                            <p class="card-text text-dark">{{ post['content'] | mention | safe }}</p>
+
+                            {% if post['image_path'] %}
+                                <div class="post-img-container">
+                                    <img src="{{ post['image_path'] }}" class="post-img shadow-sm" alt="Post content">
+                                </div>
+                            {% endif %}
+
+                            <div class="mt-3 d-flex align-items-center">
+                                <div class="d-flex align-items-center me-3 text-muted static-heart">
+                                    <i class="fa fa-heart {{ 'text-danger' if post['user_liked'] else 'text-secondary' }} me-1"></i> 
+                                    <span class="text-dark small">{{ post['like_count'] or 0 }}</span>
+                                </div>
+                                <a href="{{ url_for('openpost', post_id=post['post_id']) }}" class="btn btn-sm btn-outline-primary rounded-pill px-3">View Discussion</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="text-muted px-2">No posts found.</p>
+            {% endif %}
+        </div>
+
+        <div class="tab-pane fade" id="comments" role="tabpanel">
+            {% if comments %}
+                {% for c in comments %}
+                <div class="mb-3 item-wrapper">
+                    <div class="card shadow-sm border-0">
+                        <div class="card-body position-relative">
+                            {% if session.get('username') == profile['username'] %}
+                            <div class="position-absolute top-0 end-0 p-2">
+                                <button type="button" class="btn btn-link text-danger p-0 border-0" onclick="deleteComment(this, {{ c['comment_id'] }})">
+                                    <i class="fa fa-trash"></i>
+                                </button>
+                            </div>
+                            {% endif %}
+
+                            <h4 class="card-title text-dark fw-bold">Reply to: {{ c['post_title'] | mention | safe }}</h4>
+                            <h6 class="card-subtitle mb-2 text-muted small">
+                                <a href="{{ url_for('userprofile', username=profile['username']) }}" class="metadata-link">@{{ profile['username'] }}</a> | {{ c['created_at'] }}
+                            </h6>
+                            <p class="card-text text-dark">{{ c['content'] | mention | safe }}</p>
+                            
+                            <div class="mt-3 d-flex align-items-center">
+                                <div class="d-flex align-items-center me-3 text-muted static-heart">
+                                    <i class="fa fa-heart {{ 'text-danger' if c['user_liked'] else 'text-secondary' }} me-1"></i>
+                                    <span class="text-dark small">{{ c['like_count'] or 0 }}</span>
+                                </div>
+                                <a href="{{ url_for('openpost', post_id=c['post_id']) }}" class="btn btn-sm btn-outline-primary rounded-pill px-3">View Discussion</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="text-muted px-2">No comments found.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+function smoothRemove(element, tabSelector, emptyMsg) {
+    element.style.opacity = '0';
+    element.style.transform = 'translateX(20px)';
+    setTimeout(() => {
+        element.remove();
+        const tabPane = document.querySelector(tabSelector);
+        if (!tabPane.querySelector('.card')) {
+            tabPane.innerHTML = `<p class="text-muted px-2">${emptyMsg}</p>`;
+        }
+    }, 400);
+}
+
+function deletePost(btnElement, postId) {
+    if (!confirm('Are you sure you want to delete this post?')) return;
+    fetch(`/delete_post/${postId}`, { method: 'POST' })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            smoothRemove(btnElement.closest('.item-wrapper'), '#posts', 'No posts found.');
+        } else {
+            alert('Error: ' + (data.message || 'Could not delete post.'));
+        }
+    });
+}
+
+function deleteComment(btnElement, commentId) {
+    if (!confirm('Are you sure you want to delete this comment?')) return;
+    fetch(`/delete_comment/${commentId}`, { method: 'POST' })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === 'success') {
+            smoothRemove(btnElement.closest('.item-wrapper'), '#comments', 'No comments found.');
+        } else {
+            alert('Error: ' + (data.message || 'Could not delete comment.'));
+        }
+    });
+}
+</script>
+{% endblock %}

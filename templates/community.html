@@ -1,0 +1,131 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>{{ community['name'] }} - My Forum</title>
+{% endblock %}
+
+{% block body %}
+
+<div class="container">
+    <div class="forum-head d-flex flex-column col-12 mt-4">
+        <div class="d-flex flex-row align-items-center">
+            <h2 class="mb-0">{{ community['name'] }}</h2>
+        <div class="d-flex flex-row ms-auto"> 
+            <span class="fa fa-filter d-flex m-3" style="cursor: pointer;"></span>
+            <a href="{{ url_for('create_post')}}" class="fa fa-plus d-flex m-3 text-decoration-none text-dark"></a>
+        </div>
+        </div>
+        <p class="text-muted mt-2">{{ community['description'] }}</p>
+{% if not is_member %}
+<form action="{{ url_for('join_community', community_id=community['community_id']) }}" method="post" style="display:inline;">
+    <button type="submit" class="btn btn-primary">Join Community</button>
+</form>
+{% else %}
+<form action="{{ url_for('leave_community', community_id=community['community_id']) }}" method="post" style="display:inline;">
+    <button type="submit" class="btn btn-danger">Leave Community</button>
+</form>
+{% endif %}
+
+    </div>
+    <hr>
+
+    {% for post in posts %}
+    <div class="card mb-4 shadow-sm">
+        <div class="card-body position-relative">
+            
+            {% if session.get('username') == post['username'] %}
+            <div class="position-absolute top-0 end-0 p-3">
+                <form action="{{ url_for('delete_post', post_id=post['post_id']) }}" method="POST" style="display:inline;">
+                    <button type="submit" class="btn btn-sm text-danger border-0" onclick="return confirm('Delete this post?')">
+                        <i class="fa fa-trash"></i>
+                    </button>
+                </form>
+            </div>
+            {% endif %}
+
+            <h4 class="card-title">{{ post['title'] | mention | safe }}</h4>
+            <h6 class="card-subtitle mb-2 text-muted">
+                @<a href="{{ url_for('userprofile', username=post['username']) }}" class="text-decoration-none">
+                    {{ post['username'] }}
+                </a> | {{ post['created_at'] }}
+            </h6>
+            <hr>
+
+            <p class="card-text">{{ post['content'] | mention | safe }}</p>
+
+            {% if post['image_url'] %}
+            <div class="mb-3">
+                <a href="#" data-bs-toggle="modal" data-bs-target="#commModal{{ post['post_id'] }}">
+                    <img src="{{ post['image_url'] }}" class="img-thumbnail" style="max-height: 200px; cursor: pointer;">
+                </a>
+            </div>
+
+            <div class="modal fade" id="commModal{{ post['post_id'] }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered modal-lg">
+                    <div class="modal-content bg-dark border-0">
+                        <div class="modal-body text-center p-0">
+                            <img src="{{ post['image_url'] }}" class="img-fluid rounded">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="mt-3 d-flex align-items-center">
+                <button type="button" 
+                        class="btn btn-link p-0 border-0 text-decoration-none d-flex align-items-center me-4 like-button"
+                        data-post-id="{{ post['post_id'] }}"
+                        onclick="toggleLike(this)">
+                    
+                    <i class="fa fa-heart me-2 {% if post['user_liked'] %}text-danger{% else %}text-secondary{% endif %}"></i>
+                    <span class="like-count text-dark fw-bold">{{ post['like_count'] or 0 }}</span>
+                </button>
+
+                <a href="{{ url_for('openpost', post_id=post['post_id']) }}" class="card-link text-decoration-none">
+                    <i class="fa fa-comment-o me-1"></i> View Post
+                </a>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="text-center mt-5">
+        <p class="text-muted">No posts in this community yet.</p>
+    </div>
+    {% endfor %}
+
+</div>
+
+<script>
+function toggleLike(btnElement) {
+    const postId = btnElement.getAttribute('data-post-id');
+    
+    fetch(`/like_post/${postId}`, { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    })
+    .then(response => {
+        if (response.status === 401) {
+            window.location.href = "{{ url_for('index') }}"; 
+            return;
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data && data.status === 'success') {
+            const icon = btnElement.querySelector('i');
+            const countSpan = btnElement.querySelector('.like-count');
+
+            countSpan.innerText = data.new_count;
+
+            if (data.liked) {
+                icon.classList.replace('text-secondary', 'text-danger');
+            } else {
+                icon.classList.replace('text-danger', 'text-secondary');
+            }
+        }
+    })
+    .catch(err => console.error("Error:", err));
+}
+</script>
+
+{% endblock %}

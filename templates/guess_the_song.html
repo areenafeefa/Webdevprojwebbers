@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block body %}
+<link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
+
+<div class="game-container p-4 d-flex flex-column align-items-center justify-content-center">
+    
+    <div id="waiting-area" class="text-center">
+        <h3>Waiting for both players...</h3>
+        <div class="spinner-border"></div>
+    </div>
+
+    <div id="game-area" style="display:none; width: 100%; max-width: 600px;">
+        <div class="d-flex justify-content-between mb-3">
+            <h3>Round <span id="round-num">1</span>/5</h3>
+            <h3 class="text-danger" id="timer">10s</h3>
+        </div>
+        
+        <div class="d-flex justify-content-between mb-4 p-2 bg-light rounded">
+            <span>You: <b id="my-score">0</b></span>
+            <span>Partner: <b id="p-score">0</b></span>
+        </div>
+
+        <div id="question-card" class="card p-4 shadow-sm text-center">
+            <div id="audio-container" class="mb-4">
+                </div>
+            <div id="options-container" class="d-grid gap-2">
+                </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+<script>
+    // FULL SYNC LOGIC
+    const socket = io();
+    const sessionId = {{ session_id }};
+    const gameData = {{ game_data | tojson }}; // Pass Python data to JS
+    let currentRound = 0;
+    let score = 0;
+    
+    socket.emit('join_game', {session_id: sessionId});
+
+    // Start Game Trigger
+    socket.on('start_song_game', () => {
+        document.getElementById('waiting-area').style.display = 'none';
+        document.getElementById('game-area').style.display = 'block';
+        loadRound();
+    });
+
+    function loadRound() {
+        if(currentRound >= gameData.length) {
+            alert("Game Over! Score: " + score);
+            window.location.href = "{{ url_for('game_result', session_id=session_id) }}";
+            return;
+        }
+
+        let round = gameData[currentRound];
+        document.getElementById('round-num').innerText = currentRound + 1;
+        
+        // Setup Audio
+        let audioHtml = round.preview ? 
+            `<audio autoplay controls src="${round.preview}"></audio>` : 
+            `<p>No Audio - Guess by Title</p>`;
+        document.getElementById('audio-container').innerHTML = audioHtml;
+
+        // Setup Buttons
+        let html = '';
+        round.options.forEach(opt => {
+            html += `<button class="btn btn-outline-primary py-3" onclick="guess('${opt}')">${opt}</button>`;
+        });
+        document.getElementById('options-container').innerHTML = html;
+
+        // Start Timer
+        let timeLeft = 10;
+        let timer = setInterval(() => {
+            timeLeft--;
+            document.getElementById('timer').innerText = timeLeft + "s";
+            if(timeLeft <= 0) {
+                clearInterval(timer);
+                nextRound();
+            }
+        }, 1000);
+    }
+
+    function guess(answer) {
+        let correct = gameData[currentRound].answer;
+        if(answer === correct) {
+            score += 10;
+            document.getElementById('my-score').innerText = score;
+            // Emit score update to partner
+        }
+        // Disable buttons
+        let btns = document.querySelectorAll('#options-container button');
+        btns.forEach(b => b.disabled = true);
+    }
+
+    function nextRound() {
+        currentRound++;
+        loadRound();
+    }
+</script>
+{% endblock %}

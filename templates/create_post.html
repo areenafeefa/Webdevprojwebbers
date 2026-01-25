@@ -1,0 +1,123 @@
+{% extends 'base.html' %}
+{% block head %}
+<script>
+function toggleEventFields() {
+    const postType = document.getElementById('post_type').value;
+    const eventFields = document.getElementById('event-fields');
+    if(postType === 'event') {
+        eventFields.style.display = 'block';
+    } else {
+        eventFields.style.display = 'none';
+    }
+}
+window.addEventListener('DOMContentLoaded', () => {
+    toggleEventFields();
+});
+</script>
+{% endblock %}
+
+{% block body %}
+<div class="container mt-4">
+    {% if logged_in %}
+        <form method="POST" enctype="multipart/form-data">
+            
+            <div class="mb-3">
+                <label for="post_type" class="form-label">Post Type</label>
+                <select class="form-select" id="post_type" name="post_type" onchange="toggleEventFields()" required>
+                    <option value="general" selected>General</option>
+                    <option value="event">Event</option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label for="title" class="form-label">Post Title</label>
+                <input type="text" class="form-control" id="title" name="title" placeholder="Enter post title" required>
+            </div>
+
+            {% if community_id %}
+                <input type="hidden" name="community_id" value="{{ community_id }}">
+                <p>Posting in <strong>{{ community_name }}</strong></p>
+            {% else %}
+                <div class="mb-3">
+                    <label for="community" class="form-label">Community</label>
+                    <select class="form-select" id="community" name="community_id" required>
+                        <option value="" disabled selected>Select a community</option>
+                        {% for community in communities %}
+                            <option value="{{ community['community_id'] }}">{{ community['name'] }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            {% endif %}
+
+            <div class="mb-3">
+                <label for="content" class="form-label">Post Content</label>
+                <textarea class="form-control" id="content" name="content" rows="5" placeholder="Write your post here"></textarea>
+            </div>
+
+            <div class="mb-3">
+                <label for="image" class="form-label">Upload Image (Optional)</label>
+                <input type="file" class="form-control" id="image" name="image" accept="image/*">
+                <div class="form-text">Accepted formats: PNG, JPG, JPEG, GIF, WEBP (Max 5MB)</div>
+            </div>
+            
+            <div class="mb-3" id="preview-container" style="display: none;">
+                <label class="form-label d-block">Image Preview:</label>
+                <div class="position-relative d-inline-block">
+                    <img id="image-preview" src="#" alt="Preview" class="img-thumbnail" style="max-height: 200px;">
+                    <button type="button" id="remove-preview" class="btn btn-sm btn-danger position-absolute top-0 end-0 m-1">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div id="event-fields" style="display:none;" class="border p-3 bg-light rounded mb-3">
+                <input type="hidden" id="organiser_id" name="organiser_id" value="{{ session['user_id'] }}">
+                <h5>Event Details</h5>
+                <div class="mb-3">
+                    <label for="location" class="form-label">Location</label>
+                    <input type="text" class="form-control" id="location" name="location" placeholder="Enter event location">
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="event_date" class="form-label">Event Date</label>
+                        <input type="date" class="form-control" id="event_date" name="event_date">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="event_time" class="form-label">Event Time</label>
+                        <input type="time" class="form-control" id="event_time" name="event_time">
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-3">
+                <button type="submit" class="btn btn-primary">Post</button>
+                <a href="{{ url_for('index') }}" class="btn btn-outline-secondary ms-2">Cancel</a>
+            </div>
+
+        </form>
+    {% else %}
+        <p>You must <a href="{{ url_for('login') }}">log in</a> to create a post.</p>
+    {% endif %}
+</div>
+
+<script>
+    // Image Preview Script
+    const imageInput = document.getElementById('image');
+    const previewContainer = document.getElementById('preview-container');
+    const previewImage = document.getElementById('image-preview');
+    const removeBtn = document.getElementById('remove-preview');
+
+    imageInput.onchange = evt => {
+        const [file] = imageInput.files;
+        if (file) {
+            previewImage.src = URL.createObjectURL(file);
+            previewContainer.style.display = 'block';
+        }
+    }
+
+    removeBtn.onclick = () => {
+        imageInput.value = ""; 
+        previewContainer.style.display = 'none';
+    };
+</script>
+{% endblock %}

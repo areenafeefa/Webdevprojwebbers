@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block body %}
+<link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
+
+<div class="game-container p-4" style="overflow-y: auto; display: block; max-width: 1000px;">
+    
+    <div class="row h-100">
+        
+        <div class="col-md-8">
+            
+            <h4 class="mb-3" style="color: #333; font-weight: 700;">Play Anytime</h4>
+            
+            <a href="{{ url_for('game_bingo_play') }}" class="game-card card-bingo mb-4 d-block text-decoration-none" 
+               style="background-color: #dae0f5; border: 1px solid #cdd6f0; color: #212529;">
+                <div class="d-flex w-100 justify-content-between align-items-center">
+                    <span style="font-weight: 700;">Bingo</span>
+                    <span style="opacity: 0.7;">Single Player</span>
+                </div>
+            </a>
+
+            <h4 class="mb-3" style="color: #333; font-weight: 700;">Play Together</h4>
+            <div class="d-flex gap-3">
+                
+                <a href="{{ url_for('game_crossword_play') }}" class="game-card card-crossword w-50 text-decoration-none" 
+                   style="background-color: #fad4d8; border: 1px solid #f8c1c6; color: #212529;">
+                    <div class="d-flex flex-column align-items-center text-center">
+                        <span style="font-weight: 700;">Crossword</span>
+                        <span style="font-size: 0.9em; margin-top: 5px; opacity: 0.7;">2 Players</span>
+                    </div>
+                </a>
+                
+                <a href="{{ url_for('game_guess_song_play') }}" class="game-card card-song w-50 text-decoration-none" 
+                   style="background-color: #e9dcf5; border: 1px solid #decbe6; color: #212529;">
+                    <div class="d-flex flex-column align-items-center text-center">
+                        <span style="font-weight: 700;">Guess the Song</span>
+                        <span style="font-size: 0.9em; margin-top: 5px; opacity: 0.7;">2 Players</span>
+                    </div>
+                </a>
+            </div>
+
+            <h4 class="mb-3 mt-4" style="color: #333; font-weight: 700;">Buddy Up</h4>
+
+            <div class="game-card card-bingo mb-4 d-block"
+                 style="background-color: #dae0f5; border: 1px solid #cdd6f0; color: #212529; padding: 15px; border-radius: 8px;">
+                
+                <!-- Title + Category -->
+                <div class="d-flex w-100 justify-content-between align-items-center">
+                    <span style="font-weight: 700;">Just Chatting</span>
+                    
+                    <!-- Category Selector -->
+                    <span id="categorySpan"
+                          style="cursor: pointer; opacity: 0.8; padding: 4px 8px; border: 1px solid #bbb; border-radius: 5px;">
+                        Education
+                    </span>
+                </div>
+
+                <!-- Talk Now Button -->
+                <div class="d-flex justify-content-end mt-3">
+                    <button id="talkNowBtn" class="btn btn-sm btn-primary">
+                        Talk Now!
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="bg-white p-4 rounded shadow-sm h-100 d-flex flex-column justify-content-center border" style="border-color: #eee;">
+                <h5 class="text-muted mb-4 border-bottom pb-2">Your Streaks</h5>
+                
+                <div class="mb-4">
+                    <small class="text-uppercase text-muted fw-bold" style="font-size: 0.7rem;">Bingo</small>
+                    <div class="d-flex align-items-center mt-1">
+                        <span class="h2 mb-0 me-2" style="color: #5a71c8;">{{ stats['streak_bingo'] }}</span>
+                        <span class="text-muted small">days</span>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <small class="text-uppercase text-muted fw-bold" style="font-size: 0.7rem;">Crossword</small>
+                    <div class="d-flex align-items-center mt-1">
+                        <span class="h2 mb-0 me-2" style="color: #d66d71;">{{ stats['streak_crossword'] }}</span>
+                        <span class="text-muted small">days</span>
+                    </div>
+                </div>
+
+                <div class="mb-2">
+                    <small class="text-uppercase text-muted fw-bold" style="font-size: 0.7rem;">Guess the Song</small>
+                    <div class="d-flex align-items-center mt-1">
+                        <span class="h2 mb-0 me-2" style="color: #8a73b9;">{{ stats['streak_song'] }}</span>
+                        <span class="text-muted small">days</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+const categories = ["Education", "Life", "Culture"];
+let index = 0;
+
+const span = document.getElementById("categorySpan");
+const talkBtn = document.getElementById("talkNowBtn");
+
+// Cycle categories on click
+span.addEventListener("click", function(event) {
+    event.stopPropagation();
+    index = (index + 1) % categories.length;
+    span.textContent = categories[index];
+});
+
+// Redirect to live chat lobby with selected category
+talkBtn.addEventListener("click", function() {
+    const selectedCategory = span.textContent;
+    window.location.href = "/lobby/live_chat?category=" + encodeURIComponent(selectedCategory);
+});
+</script>
+
+{% endblock %}

@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block body %}
+<link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
+
+<div class="game-container p-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <a href="{{ url_for('game_start_page', game_type='crossword') }}" class="btn-back">Quit Game</a>
+        <div>Playing with: <strong>{{ partner_name }}</strong></div>
+    </div>
+
+    <div class="cw-board">
+        {% for r in range(20) %}
+            {% for c in range(20) %}
+                {% if (r, c) in layout %}
+                    <input type="text" maxlength="1" 
+                           class="cw-cell" 
+                           id="cell-{{r}}-{{c}}"
+                           data-row="{{r}}" data-col="{{c}}"
+                           value="{{ current_state.get(r|string + '_' + c|string, '') }}"
+                           oninput="handleInput(this, {{r}}, {{c}})"
+                           onkeydown="handleKey(event, {{r}}, {{c}})">
+                {% else %}
+                    <div class="cw-cell black"></div>
+                {% endif %}
+            {% endfor %}
+        {% endfor %}
+    </div>
+
+    <div class="text-center mt-3">
+         <button class="btn btn-warning btn-sm" onclick="sendReminder()">🔔 Send Reminder to Partner</button>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+<script>
+    const socket = io();
+    const sessionId = {{ session_id }};
+    
+    socket.emit('join_game', {session_id: sessionId});
+
+    // Auto-advance logic
+    function handleInput(el, r, c) {
+        let val = el.value.toUpperCase();
+        el.value = val; // Force upper
+        
+        if(val.length === 1) {
+            // Send move
+            socket.emit('crossword_move', {
+                session_id: sessionId, row: r, col: c, letter: val
+            });
+
+            // Try to focus next cell to the right (Simple logic)
+            // Ideally, we detect if user is typing Across or Down. 
+            // For prototype, we default to Across (c+1).
+            let nextId = `cell-${r}-${c+1}`;
+            let nextEl = document.getElementById(nextId);
+            if(nextEl) nextEl.focus();
+        }
+    }
+
+    // Arrow key navigation
+    function handleKey(e, r, c) {
+        let targetR = r, targetC = c;
+        if(e.key === "ArrowRight") targetC++;
+        if(e.key === "ArrowLeft") targetC--;
+        if(e.key === "ArrowDown") targetR++;
+        if(e.key === "ArrowUp") targetR--;
+        
+        let targetEl = document.getElementById(`cell-${targetR}-${targetC}`);
+        if(targetEl) targetEl.focus();
+    }
+
+    // Validation (Word Check) - Handled via visual feedback from server
+    socket.on('update_grid', (data) => {
+        let cell = document.getElementById(`cell-${data.row}-${data.col}`);
+        if(cell) {
+            cell.value = data.letter;
+            // Highlight color change logic here if needed
+            cell.style.backgroundColor = "#eef"; 
+        }
+    });
+    
+    function sendReminder() {
+        // Implementation for toast notification
+        alert("Reminder sent!");
+    }
+</script>
+{% endblock %}

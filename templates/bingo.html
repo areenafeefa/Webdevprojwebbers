@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block body %}
+<link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
+
+<div class="game-container">
+    <a href="{{ url_for('game_start_page', game_type='bingo') }}" class="btn-back">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-left" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/></svg>
+        Back to Stats
+    </a>
+
+    <div class="row h-100">
+        <div class="col-md-8">
+            <h3 class="mb-4 fw-bold" style="color: #333;">Bingo Board</h3>
+            <div class="bingo-grid">
+                {% for task in tasks %}
+                    {% set done = task.id in my_tasks_map %}
+                    <div class="bingo-cell {% if done %}done{% endif %}" 
+                         style="cursor: pointer; position: relative;"
+                         onclick="openBingoModal({{ task.id }}, '{{ task.task }}', '{{ my_tasks_map.get(task.id, '') }}', {{ 'true' if done else 'false' }})">
+                        
+                        <h5 class="fw-bold mb-2">{{ task.task }}</h5>
+                        {% if done %}
+                            <small style="color: #155724;">✓ Completed</small>
+                        {% else %}
+                            <small class="text-muted">Tap to complete</small>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="h-100 ps-4 border-start">
+                <h5 class="fw-bold mb-3 text-muted">Friends' Updates</h5>
+                <div class="overflow-auto" style="max-height: 80vh;">
+                    {% if friends_activity %}
+                        {% for act in friends_activity %}
+                            <div class="mb-3 pb-3 border-bottom">
+                                <span class="fw-bold text-primary">{{ act.username }}</span>
+                                <span class="small text-muted">completed {{ act.task_name }}</span>
+                                <div class="bg-light p-3 rounded mt-2 small fst-italic text-muted">
+                                    "{{ act.note }}"
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="text-muted small">No activity yet.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="bingoModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form action="{{ url_for('game_bingo_play') }}" method="POST">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalTitle">Task</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="task_id" id="modalTaskId">
+                    
+                    <div id="readOnlyView" style="display:none;">
+                        <p class="text-muted mb-2">You completed this task with the note:</p>
+                        <div class="p-3 bg-light rounded fst-italic" id="modalNoteDisplay"></div>
+                    </div>
+
+                    <div id="inputView" style="display:none;">
+                        <label class="form-label text-muted">Add a note (e.g. "Walked with my neighbor")</label>
+                        <input type="text" name="note" class="form-control" placeholder="I did this by..." required autocomplete="off">
+                        <button type="submit" class="btn btn-primary w-100 mt-3">Mark as Done</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    function openBingoModal(id, title, note, isDone) {
+        document.getElementById('modalTitle').innerText = title;
+        document.getElementById('modalTaskId').value = id;
+        
+        const modal = new bootstrap.Modal(document.getElementById('bingoModal'));
+        
+        if (isDone) {
+            // Read Only Mode - You cannot edit it
+            document.getElementById('readOnlyView').style.display = 'block';
+            document.getElementById('inputView').style.display = 'none';
+            document.getElementById('modalNoteDisplay').innerText = note || "(No note)";
+        } else {
+            // Input Mode - You can submit
+            document.getElementById('readOnlyView').style.display = 'none';
+            document.getElementById('inputView').style.display = 'block';
+        }
+        
+        modal.show();
+    }
+</script>
+{% endblock %}
