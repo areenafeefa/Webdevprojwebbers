@@ -990,6 +990,42 @@ def join_community(community_id):
     conn.commit()
     return redirect(url_for('community', community_id=community_id))
 
+@app.route('/leave_community/<int:community_id>', methods=['POST'])
+def leave_community(community_id):
+    if 'username' not in session:
+        return redirect(url_for('login'))
+
+    conn = get_db()
+    
+    # Get user ID from session
+    user_row = conn.execute(
+        "SELECT user_id FROM users WHERE username = ?", 
+        (session['username'],)
+    ).fetchone()
+
+    if not user_row:
+        return redirect(url_for('login'))  # Safety check
+
+    user_id = user_row['user_id']
+
+    # Check if user is actually a member
+    exists = conn.execute("""
+        SELECT 1 FROM community_members WHERE user_id = ? AND community_id = ?
+    """, (user_id, community_id)).fetchone()
+
+    if not exists:
+        return redirect(url_for('community', community_id=community_id))  # Not a member
+
+    # Delete membership
+    conn.execute(
+        "DELETE FROM community_members WHERE user_id = ? AND community_id = ?",
+        (user_id, community_id)
+    )
+    conn.commit()
+
+    return redirect(url_for('community', community_id=community_id))
+
+#
 #  Not even implemented We hope it works 
 @app.route('/friend/request/<username>', methods=['POST'])
 def send_friend_request(username):
