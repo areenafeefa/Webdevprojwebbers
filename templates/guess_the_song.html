@@ -2,11 +2,12 @@
 {% block body %}
 <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
 
-<div class="game-container p-4 d-flex flex-column align-items-center justify-content-center">
+<div class="game-container p-4 d-flex flex-column align-items-center justify-content-center" style="height: auto; min-height: 100%;">
     
     <div id="waiting-area" class="text-center">
         <h3>Waiting for both players...</h3>
-        <div class="spinner-border"></div>
+        <div class="spinner-border text-primary mt-3"></div>
+        <p class="text-muted mt-2">Do not refresh.</p>
     </div>
 
     <div id="game-area" style="display:none; width: 100%; max-width: 600px;">
@@ -26,21 +27,24 @@
             <div id="options-container" class="d-grid gap-2">
                 </div>
         </div>
+        
+        <form action="{{ url_for('game_complete', game_type='song') }}" method="POST" id="finishForm">
+            <input type="hidden" name="session_id" value="{{ session_id }}">
+            <input type="hidden" name="score" id="finalScoreInput" value="0">
+        </form>
     </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 <script>
-    // FULL SYNC LOGIC
     const socket = io();
     const sessionId = {{ session_id }};
-    const gameData = {{ game_data | tojson }}; // Pass Python data to JS
+    const gameData = {{ game_data | tojson }}; 
     let currentRound = 0;
     let score = 0;
     
     socket.emit('join_game', {session_id: sessionId});
 
-    // Start Game Trigger
     socket.on('start_song_game', () => {
         document.getElementById('waiting-area').style.display = 'none';
         document.getElementById('game-area').style.display = 'block';
@@ -49,8 +53,9 @@
 
     function loadRound() {
         if(currentRound >= gameData.length) {
-            alert("Game Over! Score: " + score);
-            window.location.href = "{{ url_for('game_result', session_id=session_id) }}";
+            // Game Over
+            document.getElementById('finalScoreInput').value = score;
+            document.getElementById('finishForm').submit();
             return;
         }
 
@@ -59,14 +64,17 @@
         
         // Setup Audio
         let audioHtml = round.preview ? 
-            `<audio autoplay controls src="${round.preview}"></audio>` : 
-            `<p>No Audio - Guess by Title</p>`;
+            `<audio autoplay controls src="${round.preview}" class="w-100"></audio>` : 
+            `<div class="alert alert-warning">No Audio Preview - Guess by Title</div>`;
         document.getElementById('audio-container').innerHTML = audioHtml;
 
         // Setup Buttons
         let html = '';
         round.options.forEach(opt => {
-            html += `<button class="btn btn-outline-primary py-3" onclick="guess('${opt}')">${opt}</button>`;
+            // Added class 'option-btn' and data-val for the feedback logic
+            html += `<button class="btn btn-outline-primary py-3 option-btn" 
+                             data-val="${opt}" 
+                             onclick="guess(this, '${opt}')">${opt}</button>`;
         });
         document.getElementById('options-container').innerHTML = html;
 
@@ -80,18 +88,39 @@
                 nextRound();
             }
         }, 1000);
+        
+        // Save timer ID to clear it if user answers
+        window.currentTimer = timer;
     }
 
-    function guess(answer) {
+    function guess(btn, answer) {
+        clearInterval(window.currentTimer); // Stop timer
+        
         let correct = gameData[currentRound].answer;
+        let allBtns = document.querySelectorAll('.option-btn');
+        
+        // Disable all buttons
+        allBtns.forEach(b => b.disabled = true);
+
         if(answer === correct) {
+            // CORRECT: Green
             score += 10;
             document.getElementById('my-score').innerText = score;
-            // Emit score update to partner
+            btn.classList.replace('btn-outline-primary', 'btn-success');
+        } else {
+            // WRONG: Red
+            btn.classList.replace('btn-outline-primary', 'btn-danger');
+            
+            // Highlight the correct one Green
+            allBtns.forEach(b => {
+                if(b.getAttribute('data-val') === correct) {
+                    b.classList.replace('btn-outline-primary', 'btn-success');
+                }
+            });
         }
-        // Disable buttons
-        let btns = document.querySelectorAll('#options-container button');
-        btns.forEach(b => b.disabled = true);
+        
+        // Wait 1 second before next round so they see the color
+        setTimeout(nextRound, 1000);
     }
 
     function nextRound() {
