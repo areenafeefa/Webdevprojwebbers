@@ -1596,12 +1596,15 @@ def get_utc_today():
 def update_streak(user_id, game):
     """Updates streak if played on a new UTC day."""
     conn = get_db()
+    # MAPPING FIX: If game is 'guess_song', use 'song' for database columns
+    db_game_name = 'song' if game == 'guess_song' else game
+    
     stats = conn.execute("SELECT * FROM user_stats WHERE user_id=?", (user_id,)).fetchone()
     
     today = get_utc_today()
     yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date().isoformat()
     
-    col_streak, col_date = f"streak_{game}", f"last_{game}_date"
+    col_streak, col_date = f"streak_{db_game_name}", f"last_{db_game_name}_date"
     current = stats[col_streak] if stats else 0
     last = stats[col_date] if stats else None
     
@@ -1617,12 +1620,24 @@ def update_streak(user_id, game):
 
 def get_game_status(user_id, game_type):
     """Checks if game is completed (UTC today), in_progress, or available."""
+    # Safety: Skip daily check for live chat
+    if game_type == 'live_chat':
+        return "available"
+
     conn = get_db()
     today = get_utc_today()
     
+    # MAPPING FIX: Use 'song' columns for 'guess_song' game type
+    db_game_name = 'song' if game_type == 'guess_song' else game_type
+    
     stats = conn.execute("SELECT * FROM user_stats WHERE user_id=?", (user_id,)).fetchone()
-    if stats and stats[f'last_{game_type}_date'] == today:
-        return "completed"
+    
+    # Check column existence using the mapped name
+    try:
+        if stats and stats[f'last_{db_game_name}_date'] == today:
+            return "completed"
+    except (IndexError, KeyError):
+        pass
 
     if game_type != 'bingo':
         active = conn.execute("""
@@ -1647,27 +1662,30 @@ def find_match_priority(conn, user_id, game_type):
     if is_youth: target_condition = "AND u.age > 50"
     elif is_elderly: target_condition = "AND u.age < 30"
     
-    today = get_utc_today()
+    # We use 'active' status and NULL player_2 to find someone waiting
+    # Removed the date(s.created_at) restriction to avoid timestamp mismatch errors
     
-    # Attempt 1: Priority Match
+    # Attempt 1: Priority Match (Age-based)
     if target_condition:
         query = f"""
             SELECT s.session_id, s.player_1_id 
             FROM game_sessions s
             JOIN users u ON s.player_1_id = u.user_id
             WHERE s.game_type=? AND s.player_2_id IS NULL AND s.status='active' 
-            AND date(s.created_at)=? AND s.player_1_id != ? {target_condition}
+            AND s.player_1_id != ? {target_condition}
+            ORDER BY s.created_at DESC LIMIT 1
         """
-        match = conn.execute(query, (game_type, today, user_id)).fetchone()
+        match = conn.execute(query, (game_type, user_id)).fetchone()
         if match: return match
 
-    # Attempt 2: Any Match
+    # Attempt 2: Fallback Match (Any available player)
     return conn.execute("""
         SELECT session_id, s.player_1_id 
         FROM game_sessions s
         WHERE s.game_type=? AND s.player_2_id IS NULL AND s.status='active' 
-        AND date(s.created_at)=? AND s.player_1_id != ?
-    """, (game_type, today, user_id)).fetchone()
+        AND s.player_1_id != ?
+        ORDER BY s.created_at DESC LIMIT 1
+    """, (game_type, user_id)).fetchone()
 
 # --- 3. GAME ROUTES ---
 
@@ -1716,38 +1734,43 @@ def game_lobby(game):
     conn = get_db()
     uid = session['user_id']
     
-    # 1. Rejoin existing
+    # 1. Rejoin check: If I am already in a full active session, just send me to play
     existing = conn.execute("""
         SELECT session_id, player_2_id FROM game_sessions 
         WHERE game_type=? AND (player_1_id=? OR player_2_id=?) AND status='active'
     """, (game, uid, uid)).fetchone()
     
-    if existing:
-        if existing['player_2_id']: return redirect(url_for(f'game_{game}_play'))
-        else: return render_template('lobby.html', game=game, session_id=existing['session_id'])
+    if existing and existing['player_2_id']:
+        return redirect(url_for(f'game_{game}_play'))
 
-    # 2. Daily Limit Check (UTC)
+    # 2. Daily Limit Check
     if get_game_status(uid, game) == "completed":
         flash("You have already completed your daily match!", "info")
         return redirect(url_for('find_a_friend_hub'))
 
-    # 3. Matchmaking
+    # 3. Matchmaking: Try to find someone already waiting
     match = find_match_priority(conn, uid, game)
     
     if match:
         sid = match['session_id']
         conn.execute("UPDATE game_sessions SET player_2_id=? WHERE session_id=?", (uid, sid))
         conn.commit()
-        # Notify waiting player
+        
+        # CRITICAL: Notify the first player (who is already in the Socket room for this session)
         socketio.emit('match_found', {'game_type': game}, room=str(sid))
+        
+        # Send me (the second player) to the game immediately
         return redirect(url_for(f'game_{game}_play'))
         
-    # 4. Wait
-    conn.execute("INSERT INTO game_sessions (game_type, player_1_id) VALUES (?, ?)", (game, uid))
-    conn.commit()
-    new_sid = conn.execute("SELECT last_insert_rowid() as id").fetchone()['id']
+    # 4. No match found? I create a session and become Player 1
+    if not existing:
+        conn.execute("INSERT INTO game_sessions (game_type, player_1_id) VALUES (?, ?)", (game, uid))
+        conn.commit()
+        sid = conn.execute("SELECT last_insert_rowid() as id").fetchone()['id']
+    else:
+        sid = existing['session_id']
     
-    return render_template('lobby.html', game=game, session_id=new_sid)
+    return render_template('lobby.html', game=game, session_id=sid)
 
 @app.route('/play/crossword')
 def game_crossword_play():
@@ -1877,26 +1900,6 @@ def game_result(session_id):
     partner = conn.execute("SELECT * FROM users WHERE user_id=?", (pid,)).fetchone() if pid else None
     return render_template('game_result.html', session=sess, partner=partner)
 
-@app.route("/notifications")
-def notifications_page():
-    user_id = session.get('user_id')
-    if not user_id:
-        return redirect(url_for('login'))
-
-    notifications = get_notifications(user_id)
-    unread_count = count_unread_notifications(user_id)
-    return render_template("notifications.html", notifications=notifications, unread_count=unread_count)
-@app.route("/notifications/read/<int:notification_id>", methods=["POST"])
-def read_notification(notification_id):
-    mark_notification_read(notification_id)
-    return redirect(url_for("notifications_page"))
-@app.route("/notifications/read_all", methods=["POST"])
-def read_all_notifications():
-    user_id = session.get('user_id')
-    if user_id:
-        mark_all_notifications_read(user_id)
-    return redirect(url_for("notifications_page"))
-
 # ==========================================
 # === SOCKETIO EVENTS (Real-time Logic) ===
 # ==========================================
@@ -1937,6 +1940,27 @@ def handle_cw_move(data):
 def handle_game_chat(data):
     username = session.get('username')
     emit('game_chat_receive', {'user': username, 'msg': data.get('msg')}, room=str(data.get('session_id')))
+
+
+@app.route("/notifications")
+def notifications_page():
+    user_id = session.get('user_id')
+    if not user_id:
+        return redirect(url_for('login'))
+
+    notifications = get_notifications(user_id)
+    unread_count = count_unread_notifications(user_id)
+    return render_template("notifications.html", notifications=notifications, unread_count=unread_count)
+@app.route("/notifications/read/<int:notification_id>", methods=["POST"])
+def read_notification(notification_id):
+    mark_notification_read(notification_id)
+    return redirect(url_for("notifications_page"))
+@app.route("/notifications/read_all", methods=["POST"])
+def read_all_notifications():
+    user_id = session.get('user_id')
+    if user_id:
+        mark_all_notifications_read(user_id)
+    return redirect(url_for("notifications_page"))
 
 # ==========================================
 # TALK NOW – LIVE CATEGORY MATCHMAKING
