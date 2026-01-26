@@ -47,17 +47,20 @@
                     <a class="nav-link dropdown-toggle position-relative" href="#" id="notifDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                         <i class="fa fa-bell"></i>
                         {% if unread_count > 0 %}
-                        <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
+                        <span id="notifBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
                             {{ unread_count }}
                         </span>
                         {% endif %}
                     </a>
+
                     <ul class="dropdown-menu dropdown-menu-end p-2" aria-labelledby="notifDropdown" style="min-width:300px; max-height:400px; overflow-y:auto;">
                         {% set notifications = get_notifications(session['user_id'], unread_only=False) %}
                         {% if notifications %}
                             {% for notif in notifications %}
                             <li>
-                                <a class="dropdown-item {% if notif.is_read == 0 %}fw-bold{% endif %}" href="{{ notif.link or '#' }}">
+                                <a href="{{ notif.link or '#' }}" 
+                                   class="dropdown-item notif-item {% if notif.is_read == 0 %}fw-bold{% else %}text-muted{% endif %}" 
+                                   data-id="{{ notif.notification_id }}">
                                     {{ notif.message }}<br>
                                     <small class="text-muted">{{ notif.created_at }}</small>
                                 </a>
@@ -88,7 +91,6 @@
                 <li class="nav-item">
                     <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
                 </li>
-
                 {% else %}
                 <!-- Login / Register -->
                 <li class="nav-item">
@@ -106,7 +108,6 @@
 
 <!-- MAIN LAYOUT -->
 <div id="layoutWrapper" class="d-flex w-100">
-
     <!-- SIDE NAV -->
     <nav id="sidebar" class="border-end">
         <ul id="sidenav" class="nav flex-column p-3">
@@ -119,8 +120,7 @@
                     <ul class="nav flex-column ms-3">
                         {% for community in global_communities %}
                         <li class="nav-item">
-                            <a class="nav-link"
-                               href="{{ url_for('community', community_id=community['community_id']) }}">
+                            <a class="nav-link" href="{{ url_for('community', community_id=community['community_id']) }}">
                                 {{ community['name'] }}
                             </a>
                         </li>
@@ -209,9 +209,9 @@
 <!-- Bootstrap JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
 
-<!-- Sidebar toggle + form validation -->
 <script>
 document.addEventListener("DOMContentLoaded", function() {
+    // Sidebar toggle
     const toggleBtn = document.getElementById("sidebarToggle");
     const sidebar = document.getElementById("sidebar");
     const layout = document.getElementById("layoutWrapper");
@@ -225,6 +225,7 @@ document.addEventListener("DOMContentLoaded", function() {
         }
     });
 
+    // Form validation
     const registerForm = document.getElementById('registerForm');
     if (registerForm) {
         registerForm.addEventListener('input', (e) => {
@@ -238,6 +239,37 @@ document.addEventListener("DOMContentLoaded", function() {
             }
         });
     }
+
+    // Notifications AJAX
+    const notifItems = document.querySelectorAll('.notif-item');
+    notifItems.forEach(item => {
+        item.addEventListener('click', function(e) {
+            const notifId = this.dataset.id;
+            const badge = document.getElementById('notifBadge');
+
+            // Send AJAX request to mark read
+            fetch('/mark_notif_read', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({notification_id: notifId})
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    this.classList.remove('fw-bold');
+                    this.classList.add('text-muted');
+
+                    // Update badge count
+                    if(badge) {
+                        let count = parseInt(badge.textContent);
+                        count = Math.max(count - 1, 0);
+                        if(count === 0) badge.remove();
+                        else badge.textContent = count;
+                    }
+                }
+            }).catch(err => console.error(err));
+        });
+    });
 
     {% with messages = get_flashed_messages(category_filter=['login_error']) %}
         {% if messages %}

@@ -910,17 +910,6 @@ def handle_message(data):
     conn.execute("INSERT INTO messages (sender_id, recipient_id, content) VALUES (?, ?, ?)",
                  (sender_id, recipient_id, msg))
     
-    # Notify receiver
-    if recipient_id != session['user_id']:
-        create_notification(
-            user_id=recipient_id,
-            actor_id=session['user_id'],
-            notif_type="message",
-            message=f"{session['username']} sent you a message",
-            link=url_for('chat_with_user', username=session['username']),
-            reference_id=None
-        )
-
     conn.commit()
 
     # real time text
@@ -1856,16 +1845,14 @@ def notifications_page():
     notifications = get_notifications(user_id)
     unread_count = count_unread_notifications(user_id)
     return render_template("notifications.html", notifications=notifications, unread_count=unread_count)
-@app.route("/notifications/read/<int:notification_id>", methods=["POST"])
-def read_notification(notification_id):
-    mark_notification_read(notification_id)
-    return redirect(url_for("notifications_page"))
+
 @app.route("/notifications/read_all", methods=["POST"])
 def read_all_notifications():
     user_id = session.get('user_id')
     if user_id:
         mark_all_notifications_read(user_id)
     return redirect(url_for("notifications_page"))
+
 
 # ==========================================
 # === SOCKETIO EVENTS (Real-time Logic) ===
@@ -1974,7 +1961,6 @@ def talk_disconnect(session_id):
     conn.commit()
 
     return redirect(url_for("game_start_page", game_type="talk"))
-
 
 # --- Main ---
 if __name__ == "__main__":
