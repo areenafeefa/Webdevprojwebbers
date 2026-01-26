@@ -2,32 +2,73 @@
 {% block body %}
 <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
 
-<div class="game-container p-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <a href="{{ url_for('game_start_page', game_type='crossword') }}" class="btn-back">Quit Game</a>
-        <div>Playing with: <strong>{{ partner_name }}</strong></div>
-    </div>
+<style>
+    /* Green for completed words */
+    .cw-cell.correct-word {
+        background-color: #d4edda !important;
+        color: #155724 !important;
+        border-color: #c3e6cb !important;
+    }
+    /* Styles for focus and readonly */
+    .cw-cell:focus {
+        background-color: #eef2ff;
+        outline: 2px solid #667eea;
+        z-index: 10;
+    }
+    .cw-cell.readonly {
+        background-color: #f8f9fa;
+        color: #999;
+    }
+</style>
 
-    <div class="cw-board">
-        {% for r in range(20) %}
-            {% for c in range(20) %}
-                {% if (r, c) in layout %}
-                    <input type="text" maxlength="1" 
-                           class="cw-cell" 
-                           id="cell-{{r}}-{{c}}"
-                           data-row="{{r}}" data-col="{{c}}"
-                           value="{{ current_state.get(r|string + '_' + c|string, '') }}"
-                           oninput="handleInput(this, {{r}}, {{c}})"
-                           onkeydown="handleKey(event, {{r}}, {{c}})">
-                {% else %}
-                    <div class="cw-cell black"></div>
-                {% endif %}
+<div class="container-fluid mt-3">
+    <div class="cw-container">
+        
+        <div class="cw-board">
+            {% for r in range(30) %}
+                {% for c in range(25) %}
+                    {% if (r, c) in layout %}
+                        <input type="text" maxlength="1" 
+                               class="cw-cell white" 
+                               id="cell-{{r}}-{{c}}"
+                               data-row="{{r}}" data-col="{{c}}"
+                               value="{{ current_state.get(r|string + '_' + c|string, '') }}"
+                               onkeydown="handleKey(event, {{r}}, {{c}})"
+                               oninput="handleInput(this, {{r}}, {{c}})">
+                    {% else %}
+                        <div class="cw-cell black"></div>
+                    {% endif %}
+                {% endfor %}
             {% endfor %}
-        {% endfor %}
-    </div>
+        </div>
 
-    <div class="text-center mt-3">
-         <button class="btn btn-warning btn-sm" onclick="sendReminder()">🔔 Send Reminder to Partner</button>
+        <div class="cw-sidebar">
+            <h5 class="mb-3">Game Info</h5>
+            <p class="small text-muted mb-2">Played with: <strong>{{ partner_name }}</strong></p>
+            
+            <div class="alert alert-light border py-2 small mb-3">
+                Your Role: <strong class="text-primary">{% if my_role == 'p1' %}ACROSS{% else %}DOWN{% endif %}</strong>
+                <br>
+                <span class="text-muted" style="font-size: 0.8em;">You can only edit words in your direction.</span>
+            </div>
+
+            <hr>
+            
+            <h6 class="mb-2">Chat</h6>
+            <div class="chat-box" id="gameChat">
+                <div class="text-center text-muted small mt-2">-- Start of chat --</div>
+            </div>
+            
+            <div class="input-group mt-2">
+                <input type="text" id="chatInput" class="form-control form-control-sm" placeholder="Type..." onkeypress="if(event.key==='Enter') sendChat()">
+                <button class="btn btn-sm btn-primary" onclick="sendChat()">Send</button>
+            </div>
+            
+            <form action="{{ url_for('game_complete', game_type='crossword') }}" method="POST">
+                <input type="hidden" name="session_id" value="{{ session_id }}">
+                <button class="btn btn-success w-100 mt-3" id="btnComplete" style="display:none;">Complete Puzzle</button>
+            </form>
+        </div>
     </div>
 </div>
 
@@ -35,54 +76,95 @@
 <script>
     const socket = io();
     const sessionId = {{ session_id }};
+    const myRole = "{{ my_role }}"; 
     
-    socket.emit('join_game', {session_id: sessionId});
+    socket.on('connect', () => {
+        socket.emit('join_game', {session_id: sessionId});
+    });
 
-    // Auto-advance logic
+    // 1. Navigation & Role Logic
+    function handleKey(e, r, c) {
+        let targetR = r, targetC = c;
+        
+        if (e.key === "Backspace") {
+            let el = document.getElementById(`cell-${r}-${c}`);
+            if (el.value === "") {
+                // If empty, move back based on role
+                if (myRole === 'p1') targetC--; 
+                else targetR--;
+                e.preventDefault();
+                focusCell(targetR, targetC);
+            }
+        } 
+        else if (e.key === "ArrowRight") targetC++;
+        else if (e.key === "ArrowLeft") targetC--;
+        else if (e.key === "ArrowDown") targetR++;
+        else if (e.key === "ArrowUp") targetR--;
+
+        if (targetR !== r || targetC !== c) {
+            focusCell(targetR, targetC);
+        }
+    }
+
     function handleInput(el, r, c) {
         let val = el.value.toUpperCase();
-        el.value = val; // Force upper
+        el.value = val;
+
+        // ROLE CHECK (Simplified)
+        // If strict mode is ON, you could check here if the move is allowed.
+        // For now, we trust the visual cue.
         
-        if(val.length === 1) {
-            // Send move
+        if (val.length === 1) {
             socket.emit('crossword_move', {
                 session_id: sessionId, row: r, col: c, letter: val
             });
 
-            // Try to focus next cell to the right (Simple logic)
-            // Ideally, we detect if user is typing Across or Down. 
-            // For prototype, we default to Across (c+1).
-            let nextId = `cell-${r}-${c+1}`;
-            let nextEl = document.getElementById(nextId);
-            if(nextEl) nextEl.focus();
+            // Auto-advance based on role
+            if (myRole === 'p1') focusCell(r, c + 1);
+            else focusCell(r + 1, c);
         }
     }
 
-    // Arrow key navigation
-    function handleKey(e, r, c) {
-        let targetR = r, targetC = c;
-        if(e.key === "ArrowRight") targetC++;
-        if(e.key === "ArrowLeft") targetC--;
-        if(e.key === "ArrowDown") targetR++;
-        if(e.key === "ArrowUp") targetR--;
-        
-        let targetEl = document.getElementById(`cell-${targetR}-${targetC}`);
-        if(targetEl) targetEl.focus();
+    function focusCell(r, c) {
+        let el = document.getElementById(`cell-${r}-${c}`);
+        if (el) { el.focus(); }
     }
 
-    // Validation (Word Check) - Handled via visual feedback from server
+    // 2. Socket Events
     socket.on('update_grid', (data) => {
         let cell = document.getElementById(`cell-${data.row}-${data.col}`);
-        if(cell) {
-            cell.value = data.letter;
-            // Highlight color change logic here if needed
-            cell.style.backgroundColor = "#eef"; 
+        if(cell) { cell.value = data.letter; }
+    });
+
+    socket.on('word_complete', (data) => {
+        // GREEN BOX LOGIC: The server sends a list of cells that form a complete correct word
+        data.cells.forEach(pos => {
+            let cell = document.getElementById(`cell-${pos.r}-${pos.c}`);
+            if(cell) {
+                cell.classList.add('correct-word');
+                cell.readOnly = true; 
+            }
+        });
+        
+        // If enough words are done, show complete button (heuristic)
+        if (document.querySelectorAll('.correct-word').length > 5) {
+             document.getElementById('btnComplete').style.display = 'block';
         }
     });
-    
-    function sendReminder() {
-        // Implementation for toast notification
-        alert("Reminder sent!");
+
+    // 3. Chat
+    function sendChat() {
+        let input = document.getElementById('chatInput');
+        if(input.value.trim()) {
+            socket.emit('game_chat_message', {session_id: sessionId, msg: input.value});
+            input.value = '';
+        }
     }
+
+    socket.on('game_chat_receive', (data) => {
+        let box = document.getElementById('gameChat');
+        box.innerHTML += `<div class="msg"><b>${data.user}:</b> ${data.msg}</div>`;
+        box.scrollTop = box.scrollHeight;
+    });
 </script>
 {% endblock %}

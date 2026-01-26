@@ -2,12 +2,9 @@
 {% block body %}
 <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
 
-<div class="game-container">
-    <a href="{{ url_for('find_a_friend_hub') }}" class="btn-back">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-arrow-left" viewBox="0 0 16 16">
-          <path fill-rule="evenodd" d="M15 8a.5.5 0 0 0-.5-.5H2.707l3.147-3.146a.5.5 0 1 0-.708-.708l-4 4a.5.5 0 0 0 0 .708l4 4a.5.5 0 0 0 .708-.708L2.707 8.5H14.5A.5.5 0 0 0 15 8z"/>
-        </svg>
-        Back to Hub
+<div class="game-container p-4">
+    <a href="{{ url_for('find_a_friend_hub') }}" class="btn-back text-decoration-none text-muted mb-3">
+        &larr; Back to Games
     </a>
 
     <div class="row h-100">
@@ -26,16 +23,25 @@
                     </span>
                     <span class="text-muted fs-5">Day Streak</span>
                 </div>
+                {% if status == 'completed' %}
+                    <div class="alert alert-success mt-3 mb-0">You have completed today's round!</div>
+                {% endif %}
             </div>
 
-            {% if game == 'bingo' %}
-                <a href="{{ url_for('game_bingo_play') }}" class="btn btn-primary btn-lg w-100 py-3 rounded-3 fw-bold shadow-sm">
-                    Play Bingo Now
-                </a>
+            {% if status == 'completed' %}
+                <button class="btn btn-secondary btn-lg w-100 py-3 rounded-3 fw-bold" disabled>
+                    Come Back Tomorrow
+                </button>
             {% else %}
-                <a href="{{ url_for('game_lobby', game=game) }}" class="btn btn-primary btn-lg w-100 py-3 rounded-3 fw-bold shadow-sm">
-                    Find a Partner & Play
-                </a>
+                {% if game == 'bingo' %}
+                    <a href="{{ url_for('game_bingo_play') }}" class="btn btn-primary btn-lg w-100 py-3 rounded-3 fw-bold shadow-sm">
+                        Play Bingo Now
+                    </a>
+                {% else %}
+                    <a href="{{ url_for('game_lobby', game=game) }}" class="btn btn-primary btn-lg w-100 py-3 rounded-3 fw-bold shadow-sm">
+                        Find a Partner & Play
+                    </a>
+                {% endif %}
             {% endif %}
         </div>
 
@@ -55,14 +61,14 @@
                                     {% if act.note %}
                                         "{{ act.note }}"
                                     {% else %}
-                                        Played a game
+                                        Played {{ game }}
                                     {% endif %}
                                 </p>
                             </div>
                         {% endfor %}
                         </div>
                     {% else %}
-                        <p class="text-muted small">No recent activity from friends.</p>
+                        <p class="text-muted small">No recent activity.</p>
                     {% endif %}
                 </div>
             </div>
