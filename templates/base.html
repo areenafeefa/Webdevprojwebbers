@@ -184,23 +184,51 @@
         </div>
     </div>
 
-    <!-- REGISTER MODAL -->
-    <div class="modal fade" id="registerModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Register</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <form id="registerForm" method="POST" action="{{ url_for('register') }}">
-                        <!-- form fields here -->
-                        <button type="submit" class="btn btn-primary w-100">Register</button>
-                    </form>
+<!-- REGISTER MODAL -->
+<div class="modal fade" id="registerModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Register</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="registerForm" method="POST" action="{{ url_for('register') }}">
+                    <div class="mb-3">
+                        <label class="form-label">Username</label>
+                        <input name="username" class="form-control" required minlength="3">
+                        <div class="invalid-feedback">Username must be at least 3 characters long.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Age</label>
+                        <input type="number" name="age" class="form-control" required min="13">
+                        <div class="invalid-feedback">You must be at least 13 years old.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Phone</label>
+                        <input name="phone" class="form-control" required pattern="^\d{10}$" placeholder="e.g., 1234567890">
+                        <div class="invalid-feedback">Enter a valid 10-digit phone number.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Email</label>
+                        <input type="email" name="email" class="form-control" required>
+                        <div class="invalid-feedback">Enter a valid email address.</div>
+                        <small class="text-muted">A verification email will be sent.</small>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Password</label>
+                        <input type="password" name="password" class="form-control" required minlength="8">
+                        <div class="invalid-feedback">Password must be at least 8 characters long.</div>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Register</button>
+                </form>
+                <div class="mt-2 text-center">
+                    Already have an account? <a href="#" data-bs-toggle="modal" data-bs-target="#loginModal" data-bs-dismiss="modal">Login now</a>.
                 </div>
             </div>
         </div>
     </div>
+</div>
 
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
