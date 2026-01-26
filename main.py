@@ -393,6 +393,56 @@ def create_post(community_id=None):
         community_id=community_id
     )
 
+# inidicating your interests
+@app.route("/interests", methods=["POST"])
+def interests():
+    # Make sure user is logged in
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect(url_for("login"))
+
+    # 1Get checkbox interests (supports multiple)
+    checkbox_interests = [
+        i.strip().lower()
+        for i in request.form.getlist("interests[]")
+        if i.strip()
+    ]
+
+    # Get custom interests (comma-separated)
+    custom_input = request.form.get("custom_interests", "").strip()
+    custom_interests = []
+
+    if custom_input:
+        custom_interests = [
+            i.strip().lower()
+            for i in custom_input.split(",")
+            if i.strip()
+        ]
+
+    # Combine + remove duplicates
+    all_interests = set(checkbox_interests + custom_interests)
+
+    # Save to database
+    conn = get_db()
+
+    # save to database
+    for interest in all_interests:
+        try:
+            conn.execute(
+                """
+                INSERT INTO user_interests (user_id, interest)
+                VALUES (?, ?)
+                """,
+                (user_id, interest)
+            )
+        except sqlite3.IntegrityError:
+            # Interest already exists for this user
+            pass
+
+    conn.commit()
+
+    return redirect(url_for("index"))
+
 #delete posts
 @app.route('/delete_post/<int:post_id>', methods=['POST'])
 def delete_post(post_id):
