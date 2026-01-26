@@ -25,7 +25,7 @@
             </div>
         </div>
         {% endfor %}
-        <form method="POST" action="{{ url_for('read_all_notifications') }}">
+        <form method="POST" action="{{ url_for('mark_all_notifications') }}">
             <button type="submit" class="btn btn-outline-success mt-2">Mark all as read</button>
         </form>
     {% else %}

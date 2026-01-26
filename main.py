@@ -1900,6 +1900,24 @@ def game_result(session_id):
     partner = conn.execute("SELECT * FROM users WHERE user_id=?", (pid,)).fetchone() if pid else None
     return render_template('game_result.html', session=sess, partner=partner)
 
+@app.route("/notifications")
+def notifications_page():
+    user_id = session.get('user_id')
+    if not user_id:
+        return redirect(url_for('login'))
+
+    notifications = get_notifications(user_id)
+    unread_count = count_unread_notifications(user_id)
+    return render_template("notifications.html", notifications=notifications, unread_count=unread_count)
+
+@app.route("/notifications/read_all", methods=["POST"])
+def read_all_notifications():
+    user_id = session.get('user_id')
+    if user_id:
+        mark_all_notifications_read(user_id)
+    return redirect(url_for("notifications_page"))
+
+
 # ==========================================
 # === SOCKETIO EVENTS (Real-time Logic) ===
 # ==========================================
@@ -2010,6 +2028,29 @@ def talk_chat(session_id):
         partner_name=partner['username'] if partner else "Partner"
     )
 
+@app.route('/notifications/read/<int:notification_id>')
+def mark_notification_read(notification_id):
+    if 'user_id' not in session:
+        return redirect(url_for('index'))
+
+    conn = get_db()
+
+    notification = conn.execute("""
+        SELECT * FROM notifications
+        WHERE notification_id = ? AND user_id = ?
+    """, (notification_id, session['user_id'])).fetchone()
+
+    if not notification:
+        return redirect(url_for('notifications_page'))
+
+    conn.execute("""
+        UPDATE notifications
+        SET is_read = 1
+        WHERE notification_id = ?
+    """, (notification_id,))
+    conn.commit()
+
+    return redirect(notification['link'] if notification['link'] else url_for('notifications_page'))
 
 @app.route("/talk/disconnect/<int:session_id>", methods=["POST"])
 def talk_disconnect(session_id):
