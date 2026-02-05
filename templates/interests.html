@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<title>Interests</title>
+{% endblock %}
+
+{% block body %}
+
+<a href="#" onclick="history.back()">← Back</a>
+
+<h2>What are some of your interests?</h2>
+
+<form action="/interests" method="POST" onsubmit="return validateInterests()">
+
+  <div class="interest-group">
+    <label><input type="checkbox" name="interests[]" value="gardening"> Gardening</label>
+    <label><input type="checkbox" name="interests[]" value="baking"> Baking</label>
+    <label><input type="checkbox" name="interests[]" value="gaming"> Gaming</label>
+    <label><input type="checkbox" name="interests[]" value="art and craft"> Art and Craft</label>
+    <label><input type="checkbox" name="interests[]" value="watching shows"> Watching Shows</label>
+    <label><input type="checkbox" name="interests[]" value="knitting"> Knitting</label>
+  </div>
+
+  <div class="custom-input">
+    <p><strong>Add your own below:</strong></p>
+    <p>If you have more than one interest, separate them with commas.</p>
+    <input
+      type="text"
+      id="custom_interests"
+      name="custom_interests"
+      placeholder="e.g. photography, cycling"
+      style="width: 100%; padding: 8px;"
+    >
+  </div>
+
+  <br>
+  <button type="submit">Enter →</button>
+</form>
+
+  <!--JavaScript-->
+<script>
+function validateInterests() {
+  const input = document.getElementById("custom_interests").value.trim();
+
+  // Allow empty input (user can just select checkboxes)
+  if (!input) return true;
+
+  // Split input by commas, remove extra spaces, lowercase for uniformity
+  const interests = input
+    .split(",")
+    .map(i => i.trim())
+    .filter(i => i !== "");
+
+  // Check for duplicate interests
+  if (new Set(interests.map(i => i.toLowerCase())).size !== interests.length) {
+    alert("You have entered duplicate interests.");
+    return false;
+  }
+
+  // Check for repeated words inside each interest
+  for (const interest of interests) {
+    const words = interest.split(/\s+/);
+    if (new Set(words.map(w => w.toLowerCase())).size !== words.length) {
+      alert(`"${interest}" contains repeated words.`);
+      return false;
+    }
+  }
+
+  return true;
+}
+</script>
+
+{% endblock %}

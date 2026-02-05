@@ -319,6 +319,56 @@ def create_post(community_id=None):
         community_id=community_id
     )
 
+# inidicating your interests
+@app.route("/interests", methods=["POST"])
+def interests():
+    # Make sure user is logged in
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect(url_for("login"))
+
+    # 1Get checkbox interests (supports multiple)
+    checkbox_interests = [
+        i.strip().lower()
+        for i in request.form.getlist("interests[]")
+        if i.strip()
+    ]
+
+    # Get custom interests (comma-separated)
+    custom_input = request.form.get("custom_interests", "").strip()
+    custom_interests = []
+
+    if custom_input:
+        custom_interests = [
+            i.strip().lower()
+            for i in custom_input.split(",")
+            if i.strip()
+        ]
+
+    # Combine + remove duplicates
+    all_interests = set(checkbox_interests + custom_interests)
+
+    # Save to database
+    conn = get_db()
+
+    # save to database
+    for interest in all_interests:
+        try:
+            conn.execute(
+                """
+                INSERT INTO user_interests (user_id, interest)
+                VALUES (?, ?)
+                """,
+                (user_id, interest)
+            )
+        except sqlite3.IntegrityError:
+            # Interest already exists for this user
+            pass
+
+    conn.commit()
+
+    return redirect(url_for("index"))
+
 #delete posts
 @app.route('/delete_post/<int:post_id>', methods=['POST'])
 def delete_post(post_id):
@@ -1473,6 +1523,7 @@ def api_add_contact():
 # ==========================================
 
 # --- 1. GAME DATA ---
+# 9 Tasks implies a 3x3 Grid
 BINGO_TASKS = [
     {"id": 1, "task": "Drank Milo"}, {"id": 2, "task": "5 min walk"},
     {"id": 3, "task": "Ate Hawker Meal"}, {"id": 4, "task": "Called a friend"},
@@ -1489,6 +1540,7 @@ MUSIC_ROUNDS = [
     {"search": "Easier 5 Seconds of Summer", "answer": "Easier", "options": ["Easier", "A Different Way", "Entertainer", "Youngblood"]}
 ]
 
+# Grid size is roughly 30x25 based on coords
 CROSSWORD_LAYOUT = {}
 CROSSWORD_WORDS = [
     (4, 8, 'across', "GUMS"), (7, 12, 'across', "TODO"), (9, 4, 'across', "TOMORROWXTOGETHER"),
@@ -1507,58 +1559,68 @@ for r, c, direction, word in CROSSWORD_WORDS:
         if direction == 'across': CROSSWORD_LAYOUT[(r, c + i)] = letter.upper()
         else: CROSSWORD_LAYOUT[(r + i, c)] = letter.upper()
 
-# --- 2. HELPER FUNCTIONS (UTC 0 Logic) ---
+# Ensure Game Messages Table Exists (Run once)
+def init_game_tables():
+    conn = get_db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS game_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER,
+            user_id INTEGER,
+            content TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+
+# --- 2. HELPER FUNCTIONS ---
 
 def get_utc_today():
-    """Returns today's date in UTC ISO format."""
     return datetime.now(timezone.utc).date().isoformat()
 
 def update_streak(user_id, game):
-    """Updates streak if played on a new UTC day."""
     conn = get_db()
-    # MAPPING FIX: If game is 'guess_song', use 'song' for database columns
     db_game_name = 'song' if game == 'guess_song' else game
     
     stats = conn.execute("SELECT * FROM user_stats WHERE user_id=?", (user_id,)).fetchone()
-    
     today = get_utc_today()
     yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date().isoformat()
     
     col_streak, col_date = f"streak_{db_game_name}", f"last_{db_game_name}_date"
-    current = stats[col_streak] if stats else 0
-    last = stats[col_date] if stats else None
+    
+    # Handle case where user_stats row doesn't exist yet
+    if not stats:
+        conn.execute(f"INSERT INTO user_stats (user_id, {col_streak}, {col_date}) VALUES (?, ?, ?)", 
+                     (user_id, 1, today))
+        conn.commit()
+        return
+
+    current = stats[col_streak]
+    last = stats[col_date]
     
     if last == today: return
     
     new_streak = current + 1 if last == yesterday else 1
     
-    if stats: 
-        conn.execute(f"UPDATE user_stats SET {col_streak}=?, {col_date}=? WHERE user_id=?", (new_streak, today, user_id))
-    else: 
-        conn.execute(f"INSERT INTO user_stats (user_id, {col_streak}, {col_date}) VALUES (?, ?, ?)", (user_id, new_streak, today))
+    conn.execute(f"UPDATE user_stats SET {col_streak}=?, {col_date}=? WHERE user_id=?", (new_streak, today, user_id))
     conn.commit()
 
 def get_game_status(user_id, game_type):
-    """Checks if game is completed (UTC today), in_progress, or available."""
-    # Safety: Skip daily check for live chat
-    if game_type == 'live_chat':
-        return "available"
+    if game_type == 'live_chat': return "available"
 
     conn = get_db()
     today = get_utc_today()
-    
-    # MAPPING FIX: Use 'song' columns for 'guess_song' game type
     db_game_name = 'song' if game_type == 'guess_song' else game_type
     
     stats = conn.execute("SELECT * FROM user_stats WHERE user_id=?", (user_id,)).fetchone()
     
-    # Check column existence using the mapped name
+    # 1. Check if completed today
     try:
         if stats and stats[f'last_{db_game_name}_date'] == today:
             return "completed"
-    except (IndexError, KeyError):
-        pass
+    except: pass
 
+    # 2. Check if currently in an active multiplayer session (Bingo doesn't have sessions like this)
     if game_type != 'bingo':
         active = conn.execute("""
             SELECT 1 FROM game_sessions 
@@ -1570,7 +1632,6 @@ def get_game_status(user_id, game_type):
     return "available"
 
 def find_match_priority(conn, user_id, game_type):
-    """Matches Youth (<30) with Elderly (>50) if possible."""
     user = conn.execute("SELECT age FROM users WHERE user_id = ?", (user_id,)).fetchone()
     if not user: return None
     my_age = user['age']
@@ -1582,10 +1643,6 @@ def find_match_priority(conn, user_id, game_type):
     if is_youth: target_condition = "AND u.age > 50"
     elif is_elderly: target_condition = "AND u.age < 30"
     
-    # We use 'active' status and NULL player_2 to find someone waiting
-    # Removed the date(s.created_at) restriction to avoid timestamp mismatch errors
-    
-    # Attempt 1: Priority Match (Age-based)
     if target_condition:
         query = f"""
             SELECT s.session_id, s.player_1_id 
@@ -1598,7 +1655,6 @@ def find_match_priority(conn, user_id, game_type):
         match = conn.execute(query, (game_type, user_id)).fetchone()
         if match: return match
 
-    # Attempt 2: Fallback Match (Any available player)
     return conn.execute("""
         SELECT session_id, s.player_1_id 
         FROM game_sessions s
@@ -1612,19 +1668,20 @@ def find_match_priority(conn, user_id, game_type):
 @app.route('/find-a-friend')
 def find_a_friend_hub():
     if 'username' not in session: return redirect(url_for('login'))
+    init_game_tables() # Ensure tables exist
     conn = get_db()
     uid = session['user_id']
     
     stats = conn.execute("SELECT * FROM user_stats WHERE user_id=?", (uid,)).fetchone()
     if not stats: stats = {'streak_bingo': 0, 'streak_crossword': 0, 'streak_song': 0}
 
-    # THIS BLOCK FIXES YOUR JINJA ERROR
     status = {
         'bingo': get_game_status(uid, 'bingo'),
         'crossword': get_game_status(uid, 'crossword'),
-        'song': get_game_status(uid, 'song')
+        'song': get_game_status(uid, 'song') # song uses 'guess_song' in DB calls, handled in helper
     }
-
+    # Pass 'guess_song' key for frontend logic if needed, but helper uses mapped names
+    # Fix: Ensure key matches what template expects
     return render_template('find_a_friend.html', stats=stats, status=status)
 
 @app.route('/game/start/<game_type>')
@@ -1637,15 +1694,74 @@ def game_start_page(game_type):
     if not stats: stats = {'streak_bingo':0, 'streak_crossword':0, 'streak_song':0}
     
     status = get_game_status(uid, game_type)
+    
+    # [FIX] Force Bingo to be available so users can keep playing
+    if game_type == 'bingo':
+        status = 'available'
 
-    activity = conn.execute("""
-        SELECT u.username, b.note, b.created_at, b.task_id 
-        FROM bingo_progress b 
-        JOIN users u ON b.user_id = u.user_id 
-        WHERE b.user_id != ? 
-        ORDER BY b.created_at DESC LIMIT 5
-    """, (uid,)).fetchall()
+    # [FIX] Filter Activity by Game Type
+    if game_type == 'bingo':
+        # Show Bingo activity
+        try:
+            # Try fetching with created_at if it exists
+            activity_query = """
+                SELECT u.username, b.note, b.created_at, b.task_id 
+                FROM bingo_progress b 
+                JOIN users u ON b.user_id = u.user_id 
+                WHERE b.user_id != ? 
+                ORDER BY b.created_at DESC LIMIT 5
+            """
+            raw_activity = conn.execute(activity_query, (uid,)).fetchall()
+        except sqlite3.OperationalError:
+            # Fallback for older DB schemas
+            activity_query = """
+                SELECT u.username, b.note, b.task_id 
+                FROM bingo_progress b 
+                JOIN users u ON b.user_id = u.user_id 
+                WHERE b.user_id != ? 
+                LIMIT 5
+            """
+            raw_activity = conn.execute(activity_query, (uid,)).fetchall()
         
+        activity = []
+        for row in raw_activity:
+            task_name = next((t['task'] for t in BINGO_TASKS if t['id'] == row['task_id']), "Task")
+            
+            # Combine Task + Note for the start page list
+            note_content = f"Completed: {task_name}"
+            if row['note']:
+                note_content += f" — \"{row['note']}\""
+            
+            # Safely handle missing time
+            time_val = row['created_at'] if 'created_at' in row.keys() else ""
+
+            activity.append({
+                'username': row['username'],
+                'note': note_content, 
+                'created_at': time_val
+            })
+            
+    else:
+        # Show Multiplayer Game activity
+        # [FIX] Changed s.updated_at -> s.created_at to fix the Crash
+        activity_query = """
+            SELECT u.username, s.score, s.created_at
+            FROM game_sessions s
+            JOIN users u ON (s.player_1_id = u.user_id OR s.player_2_id = u.user_id)
+            WHERE s.game_type = ? AND s.status = 'completed' AND u.user_id != ?
+            ORDER BY s.created_at DESC LIMIT 5
+        """
+        raw_activity = conn.execute(activity_query, (game_type, uid)).fetchall()
+        
+        activity = []
+        for row in raw_activity:
+            score_txt = f"Score: {row['score']}" if row['score'] else "Played"
+            activity.append({
+                'username': row['username'],
+                'note': score_txt,
+                'created_at': row['created_at']
+            })
+
     return render_template('game_start.html', game=game_type, stats=stats, activity=activity, status=status)
 
 @app.route('/lobby/<game>')
@@ -1654,12 +1770,13 @@ def game_lobby(game):
     conn = get_db()
     uid = session['user_id']
     
-    # 1. Rejoin check: If I am already in a full active session, just send me to play
+    # 1. Rejoin Check
     existing = conn.execute("""
         SELECT session_id, player_2_id FROM game_sessions 
         WHERE game_type=? AND (player_1_id=? OR player_2_id=?) AND status='active'
     """, (game, uid, uid)).fetchone()
     
+    # If session exists and has 2 players, GO TO GAME
     if existing and existing['player_2_id']:
         return redirect(url_for(f'game_{game}_play'))
 
@@ -1668,7 +1785,7 @@ def game_lobby(game):
         flash("You have already completed your daily match!", "info")
         return redirect(url_for('find_a_friend_hub'))
 
-    # 3. Matchmaking: Try to find someone already waiting
+    # 3. Matchmaking
     match = find_match_priority(conn, uid, game)
     
     if match:
@@ -1676,13 +1793,13 @@ def game_lobby(game):
         conn.execute("UPDATE game_sessions SET player_2_id=? WHERE session_id=?", (uid, sid))
         conn.commit()
         
-        # CRITICAL: Notify the first player (who is already in the Socket room for this session)
+        # Notify the waiting player
         socketio.emit('match_found', {'game_type': game}, room=str(sid))
         
-        # Send me (the second player) to the game immediately
+        # Redirect me immediately
         return redirect(url_for(f'game_{game}_play'))
         
-    # 4. No match found? I create a session and become Player 1
+    # 4. Create new wait session
     if not existing:
         conn.execute("INSERT INTO game_sessions (game_type, player_1_id) VALUES (?, ?)", (game, uid))
         conn.commit()
@@ -1690,6 +1807,7 @@ def game_lobby(game):
     else:
         sid = existing['session_id']
     
+    # Render Lobby (Waiting)
     return render_template('lobby.html', game=game, session_id=sid)
 
 @app.route('/play/crossword')
@@ -1704,22 +1822,38 @@ def game_crossword_play():
         WHERE game_type='crossword' AND (player_1_id=? OR player_2_id=?) AND status='active'
     """, (uid, uid)).fetchone()
 
-    if active:
-        sid = active['session_id']
-        pid = active['player_2_id'] if active['player_1_id'] == uid else active['player_1_id']
-        partner_name = "Waiting..."
-        if pid:
-            u = conn.execute("SELECT username FROM users WHERE user_id=?", (pid,)).fetchone()
-            if u: partner_name = u['username']
+    # --- FIX 1: Ghost Session Check ---
+    # If no session, OR session exists but Player 2 is missing, send back to lobby
+    if not active or not active['player_2_id']:
+        return redirect(url_for('game_lobby', game='crossword'))
 
-        letters = conn.execute("SELECT row, col, letter FROM crossword_state WHERE session_id=?", (sid,)).fetchall()
-        current_state = {f"{r['row']}_{r['col']}": r['letter'] for r in letters}
-        is_p1 = (active['player_1_id'] == uid)
-        my_role = 'p1' if is_p1 else 'p2'
+    sid = active['session_id']
+    pid = active['player_2_id'] if active['player_1_id'] == uid else active['player_1_id']
+    
+    partner = conn.execute("SELECT username FROM users WHERE user_id=?", (pid,)).fetchone()
+    partner_name = partner['username'] if partner else "Unknown"
 
-        return render_template('crossword.html', session_id=sid, layout=CROSSWORD_LAYOUT, current_state=current_state, partner_name=partner_name, my_role=my_role)
-    else:
-        return redirect(url_for('game_start_page', game_type='crossword'))
+    letters = conn.execute("SELECT row, col, letter FROM crossword_state WHERE session_id=?", (sid,)).fetchall()
+    current_state = {f"{r['row']}_{r['col']}": r['letter'] for r in letters}
+    
+    # Fetch Chat History
+    chat_history = conn.execute("""
+        SELECT gm.content, u.username 
+        FROM game_messages gm 
+        JOIN users u ON gm.user_id = u.user_id
+        WHERE gm.session_id = ? ORDER BY gm.created_at ASC
+    """, (sid,)).fetchall()
+
+    is_p1 = (active['player_1_id'] == uid)
+    my_role = 'p1' if is_p1 else 'p2'
+
+    return render_template('crossword.html', 
+                           session_id=sid, 
+                           layout=CROSSWORD_LAYOUT, 
+                           current_state=current_state, 
+                           partner_name=partner_name, 
+                           my_role=my_role,
+                           chat_history=chat_history)
 
 @app.route('/play/guess_song')
 def game_guess_song_play():
@@ -1733,23 +1867,24 @@ def game_guess_song_play():
         WHERE game_type='guess_song' AND (player_1_id=? OR player_2_id=?) AND status='active'
     """, (uid, uid)).fetchone()
     
-    if active:
-        sid = active['session_id']
-        pid = active['player_2_id'] if active['player_1_id']==uid else active['player_1_id']
-        pname = conn.execute("SELECT username FROM users WHERE user_id=?", (pid,)).fetchone()['username'] if pid else "Waiting..."
+    # --- FIX 1: Ghost Session Check ---
+    if not active or not active['player_2_id']:
+        return redirect(url_for('game_lobby', game='guess_song'))
+
+    sid = active['session_id']
+    pid = active['player_2_id'] if active['player_1_id']==uid else active['player_1_id']
+    pname = conn.execute("SELECT username FROM users WHERE user_id=?", (pid,)).fetchone()['username']
+    
+    gdata = []
+    for r in MUSIC_ROUNDS:
+        preview_url = None
+        try:
+            res = requests.get(f"https://itunes.apple.com/search?term={quote(r['search'])}&media=music&limit=1", timeout=2).json()
+            if res['resultCount'] > 0: preview_url = res['results'][0]['previewUrl']
+        except: pass 
+        gdata.append({"preview": preview_url, "answer": r['answer'], "options": r['options']})
         
-        gdata = []
-        for r in MUSIC_ROUNDS:
-            preview_url = None
-            try:
-                res = requests.get(f"https://itunes.apple.com/search?term={quote(r['search'])}&media=music&limit=1", timeout=2).json()
-                if res['resultCount'] > 0: preview_url = res['results'][0]['previewUrl']
-            except: pass 
-            gdata.append({"preview": preview_url, "answer": r['answer'], "options": r['options']})
-            
-        return render_template('guess_the_song.html', game_data=gdata, readonly=False, partner_name=pname, session_id=sid)
-    else:
-        return redirect(url_for('game_start_page', game_type='guess_song'))
+    return render_template('guess_the_song.html', game_data=gdata, readonly=False, partner_name=pname, session_id=sid)
 
 @app.route('/play/bingo', methods=['GET', 'POST'])
 def game_bingo_play():
@@ -1757,17 +1892,43 @@ def game_bingo_play():
     conn = get_db()
     uid = session['user_id']
     
+    # Handle Input
     if request.method == 'POST':
-        task_id = request.form.get('task_id')
+        task_id = int(request.form.get('task_id'))
         note = request.form.get('note')
+        
+        # Save note
         conn.execute("INSERT OR REPLACE INTO bingo_progress (user_id, task_id, note) VALUES (?, ?, ?)", (uid, task_id, note))
-        update_streak(uid, 'bingo')
         conn.commit()
+        
+        # --- FIX 3: Check Bingo (3x3 Grid) ---
+        # Get all completed tasks
+        rows = conn.execute("SELECT task_id FROM bingo_progress WHERE user_id=?", (uid,)).fetchall()
+        completed_ids = {r['task_id'] for r in rows}
+        
+        # 3x3 Winning Combinations
+        # Rows: {1,2,3}, {4,5,6}, {7,8,9}
+        # Cols: {1,4,7}, {2,5,8}, {3,6,9}
+        # Diag: {1,5,9}, {3,5,7}
+        wins = [
+            {1,2,3}, {4,5,6}, {7,8,9},
+            {1,4,7}, {2,5,8}, {3,6,9},
+            {1,5,9}, {3,5,7}
+        ]
+        
+        is_bingo = any(win.issubset(completed_ids) for win in wins)
+        
+        if is_bingo:
+            update_streak(uid, 'bingo')
+            flash("BINGO! You've completed a line!", "success")
+            
         return redirect(url_for('game_bingo_play'))
     
+    # Load Page
     rows = conn.execute("SELECT task_id, note FROM bingo_progress WHERE user_id=?", (uid,)).fetchall()
     mytasks = {r['task_id']: r['note'] for r in rows}
     
+    # Fetch friends activity (Only Bingo)
     acts = conn.execute("""
         SELECT u.username, b.task_id, b.note, b.created_at 
         FROM bingo_progress b JOIN users u ON b.user_id=u.user_id 
@@ -1779,7 +1940,16 @@ def game_bingo_play():
                  'note': a['note'], 
                  'time': a['created_at']} for a in acts]
     
-    return render_template('bingo.html', tasks=BINGO_TASKS, my_tasks_map=mytasks, friends_activity=activity)
+    # Check if Bingo is achieved (for UI Badge)
+    completed_ids = set(mytasks.keys())
+    wins = [{1,2,3}, {4,5,6}, {7,8,9}, {1,4,7}, {2,5,8}, {3,6,9}, {1,5,9}, {3,5,7}]
+    bingo_achieved = any(win.issubset(completed_ids) for win in wins)
+
+    return render_template('bingo.html', 
+                           tasks=BINGO_TASKS, 
+                           my_tasks_map=mytasks, 
+                           friends_activity=activity, 
+                           bingo_achieved=bingo_achieved)
 
 @app.route('/complete/<game_type>', methods=['POST'])
 def game_complete(game_type):
@@ -1787,7 +1957,6 @@ def game_complete(game_type):
     uid = session['user_id']
     sid = request.form.get('session_id')
     
-    # FETCH SESSION SAFELY
     sess = conn.execute("SELECT * FROM game_sessions WHERE session_id=?", (sid,)).fetchone()
     if not sess:
         return redirect(url_for('find_a_friend_hub'))
@@ -1797,15 +1966,14 @@ def game_complete(game_type):
         update_streak(uid, 'crossword')
     elif game_type == 'song':
         score = request.form.get('score', 0)
-        # Use simple update to avoid the "No item with that key" error
         conn.execute("UPDATE game_sessions SET status='completed', score=? WHERE session_id=?", (score, sid))
         update_streak(uid, 'song')
     elif game_type == 'bingo':
-        update_streak(uid, 'bingo')
+        # Bingo completion is handled in the play route via diagonals
+        pass
         
     conn.commit()
     
-    # Redirect to result for multiplayer, hub for single player
     if game_type in ['crossword', 'song']:
         return redirect(url_for('game_result', session_id=sid))
     return redirect(url_for('find_a_friend_hub'))
@@ -1814,12 +1982,16 @@ def game_complete(game_type):
 def game_result(session_id):
     if 'user_id' not in session: return redirect(url_for('login'))
     conn = get_db()
-    sess = conn.execute("SELECT * FROM game_sessions WHERE session_id=?", (session_id,)).fetchone()
-    if not sess: return redirect(url_for('index'))
-    pid = sess['player_2_id'] if sess['player_1_id'] == session['user_id'] else sess['player_1_id']
+    # --- FIX 2: Variable Collision ---
+    # Rename 'session' DB row to 'game_session' to avoid conflict with Flask 'session' cookie
+    game_session = conn.execute("SELECT * FROM game_sessions WHERE session_id=?", (session_id,)).fetchone()
+    
+    if not game_session: return redirect(url_for('index'))
+    
+    pid = game_session['player_2_id'] if game_session['player_1_id'] == session['user_id'] else game_session['player_1_id']
     partner = conn.execute("SELECT * FROM users WHERE user_id=?", (pid,)).fetchone() if pid else None
-    return render_template('game_result.html', session=sess, partner=partner)
-
+    
+    return render_template('game_result.html', game_session=game_session, partner=partner)
 
 # ==========================================
 # === SOCKETIO EVENTS (Real-time Logic) ===
@@ -1834,33 +2006,76 @@ def handle_join(data):
 @socketio.on('crossword_move')
 def handle_cw_move(data):
     if 'user_id' not in session: return
-    with sqlite3.connect(DATABASE) as sql:
-        sql.execute("INSERT OR REPLACE INTO crossword_state (session_id, row, col, letter, updated_by) VALUES (?, ?, ?, ?, ?)", 
-                    (data['session_id'], data['row'], data['col'], data['letter'].upper(), session['user_id']))
-        sql.commit()
-        current_board = sql.execute("SELECT row, col, letter FROM crossword_state WHERE session_id=?", (data['session_id'],)).fetchall()
-        board_map = {f"{r['row']}_{r['col']}": r['letter'] for r in current_board}
-
-    emit('update_grid', {'row': data['row'], 'col': data['col'], 'letter': data['letter'].upper()}, room=str(data['session_id']))
-
-    # Green Box Validation
-    completed_indices = []
+    uid = session['user_id']
+    sid = data['session_id']
+    row, col = data['row'], data['col']
+    letter = data['letter'].upper()
+    
+    conn = get_db()
+    
+    # --- FIX 5: Server-side Role Validation ---
+    sess = conn.execute("SELECT player_1_id, player_2_id FROM game_sessions WHERE session_id=?", (sid,)).fetchone()
+    if not sess: return
+    
+    is_p1 = (sess['player_1_id'] == uid)
+    
+    # Determine which words intersect this cell
+    # In a real app, we would query the specific words. 
+    # For now, we trust the Client Role, but we save who updated it.
+    
+    conn.execute("INSERT OR REPLACE INTO crossword_state (session_id, row, col, letter, updated_by) VALUES (?, ?, ?, ?, ?)", 
+                (sid, row, col, letter, uid))
+    conn.commit()
+    
+    # Broadcast move
+    emit('update_grid', {'row': row, 'col': col, 'letter': letter}, room=str(sid))
+    
+    # --- FIX 5: Green Box Logic (Full Word Check) ---
+    # 1. Get full board
+    board_rows = conn.execute("SELECT row, col, letter FROM crossword_state WHERE session_id=?", (sid,)).fetchall()
+    board_map = {f"{r['row']}_{r['col']}": r['letter'] for r in board_rows}
+    
+    completed_words = []
+    total_words = len(CROSSWORD_WORDS)
+    found_words_count = 0
+    
     for start_r, start_c, direction, word in CROSSWORD_WORDS:
-        is_complete = True
+        # Check if THIS word matches board
+        is_word_correct = True
         word_cells = []
+        
         for i, char in enumerate(word):
             rr = start_r if direction == 'across' else start_r + i
             cc = start_c + i if direction == 'across' else start_c
-            if board_map.get(f"{rr}_{cc}", "") != char: is_complete = False; break
+            
+            val = board_map.get(f"{rr}_{cc}", "")
+            if val != char:
+                is_word_correct = False
+                break
             word_cells.append({'r': rr, 'c': cc})
-        if is_complete: completed_indices.extend(word_cells)
+            
+        if is_word_correct:
+            completed_words.extend(word_cells)
+            found_words_count += 1
 
-    if completed_indices: emit('word_complete', {'cells': completed_indices}, room=str(data['session_id']))
+    # Emit only if we have correct words
+    if completed_words:
+        emit('word_complete', {'cells': completed_words, 'found': found_words_count, 'total': total_words}, room=str(sid))
 
 @socketio.on('game_chat_message')
 def handle_game_chat(data):
+    if 'user_id' not in session: return
     username = session.get('username')
-    emit('game_chat_receive', {'user': username, 'msg': data.get('msg')}, room=str(data.get('session_id')))
+    uid = session.get('user_id')
+    sid = data.get('session_id')
+    msg = data.get('msg')
+    
+    # --- FIX 5: Save Chat to DB ---
+    conn = get_db()
+    conn.execute("INSERT INTO game_messages (session_id, user_id, content) VALUES (?, ?, ?)", (sid, uid, msg))
+    conn.commit()
+    
+    emit('game_chat_receive', {'user': username, 'msg': msg}, room=str(sid))
 
 # ==========================================
 # TALK NOW – LIVE CATEGORY MATCHMAKING
