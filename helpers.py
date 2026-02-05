@@ -417,3 +417,115 @@ def mark_all_notifications_read(user_id):
     conn = get_db()
     conn.execute("UPDATE notifications SET is_read=1 WHERE user_id=?", (user_id,))
     conn.commit()
+def get_current_user(conn):
+    username = session.get("username")
+    if not username:
+        return None
+
+    return conn.execute(
+        "SELECT user_id, username FROM users WHERE username = ?",
+        (username,)
+    ).fetchone()
+
+def fetch_post(conn, post_id):
+    row = conn.execute("""
+        SELECT p.*, 
+               e.location, e.event_date, e.event_time, e.organiser_id,
+               u.username AS creator_username,
+               c.community_id, c.name AS community_name,
+               org.username AS organiser_username
+        FROM posts p
+        JOIN users u ON p.user_id = u.user_id
+        JOIN communities c ON p.community_id = c.community_id
+        LEFT JOIN event_posts e ON p.post_id = e.post_id
+        LEFT JOIN users org ON e.organiser_id = org.user_id
+        WHERE p.post_id = ?
+    """, (post_id,)).fetchone()
+
+    if not row:
+        return None
+
+    post = dict(row)
+
+    # Resolve display username once
+    post["display_username"] = (
+        post["organiser_username"]
+        if post["post_type"] == "event" and post["organiser_username"]
+        else post["creator_username"]
+    )
+
+    return post
+def handle_event_registration(conn, post, user):
+    if post["post_type"] != "event":
+        return False
+
+    if "register_event" not in request.form:
+        return False
+
+    exists = conn.execute("""
+        SELECT 1 FROM event_registrations
+        WHERE post_id = ? AND user_id = ?
+    """, (post["post_id"], user["user_id"])).fetchone()
+
+    if not exists:
+        conn.execute("""
+            INSERT INTO event_registrations (post_id, user_id)
+            VALUES (?, ?)
+        """, (post["post_id"], user["user_id"]))
+        conn.commit()
+
+    return True
+
+def notify_post_owner(post, actor):
+    post_owner_id = (
+        post["organiser_id"]
+        if post["post_type"] == "event" and post["organiser_id"]
+        else post["user_id"]
+    )
+
+    if post_owner_id == actor["user_id"]:
+        return
+
+    create_notification(
+        user_id=post_owner_id,
+        actor_id=actor["user_id"],
+        notif_type="comment",
+        message=f"{actor['username']} commented on your post",
+        link=url_for("openpost", post_id=post["post_id"]),
+        reference_id=post["post_id"]
+    )
+
+
+def handle_comment_submission(conn, post, user):
+    content = request.form.get("content", "").strip()
+    if not content:
+        return False
+
+    conn.execute(
+        "INSERT INTO comments (post_id, user_id, content) VALUES (?, ?, ?)",
+        (post["post_id"], user["user_id"], content)
+    )
+    conn.commit()
+
+    notify_post_owner(post, user)
+
+    return True
+
+def check_event_registration(conn, post, user):
+    if not user or post["post_type"] != "event":
+        return False
+
+    result = conn.execute("""
+        SELECT 1 FROM event_registrations
+        WHERE post_id = ? AND user_id = ?
+    """, (post["post_id"], user["user_id"])).fetchone()
+
+    return bool(result)
+def fetch_comments(conn, post_id):
+    return conn.execute("""
+        SELECT c.comment_id, c.content, c.created_at, u.username
+        FROM comments c
+        JOIN users u ON c.user_id = u.user_id
+        WHERE c.post_id = ?
+        ORDER BY c.created_at ASC
+    """, (post_id,)).fetchall()
