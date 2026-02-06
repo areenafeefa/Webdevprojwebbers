@@ -201,108 +201,34 @@ import time # Ensure this is at the top with your other imports
 @app.route('/post/<int:post_id>', methods=['GET', 'POST'])
 def openpost(post_id):
     conn = get_db()
-    username = session.get('username')
+    current_user = get_current_user(conn)
 
-    # --- Fetch post + event info ---
-    post = conn.execute("""
-        SELECT p.*, 
-               e.location, e.event_date, e.event_time, e.organiser_id,
-               u.username AS creator_username,
-               c.community_id, c.name AS community_name,
-               org.username AS organiser_username
-        FROM posts p
-        JOIN users u ON p.user_id = u.user_id
-        JOIN communities c ON p.community_id = c.community_id
-        LEFT JOIN event_posts e ON p.post_id = e.post_id
-        LEFT JOIN users org ON e.organiser_id = org.user_id
-        WHERE p.post_id = ?
-    """, (post_id,)).fetchone()
-
+    post = fetch_post(conn, post_id)
     if not post:
         return "Post not found.", 404
 
-    post_dict = dict(post)
-    post_dict['username'] = post_dict['organiser_username'] if post_dict['post_type'] == 'event' and post_dict['organiser_username'] else post_dict['creator_username']
+    if request.method == "POST":
+        if not current_user:
+            return redirect(url_for("login"))
 
-    # --- Handle POST requests ---
-    if request.method == 'POST':
-        if not username:
-            return redirect(url_for('login'))
+        if handle_event_registration(conn, post, current_user):
+            return redirect(url_for("openpost", post_id=post_id))
 
-        user_row = conn.execute("SELECT user_id FROM users WHERE username = ?", (username,)).fetchone()
-        if not user_row:
-            return redirect(url_for('login'))
+        if handle_comment_submission(conn, post, current_user):
+            return redirect(url_for("openpost", post_id=post_id))
 
-        user_id = user_row['user_id']
-
-        # --- Event registration ---
-        if 'register_event' in request.form:
-            result = conn.execute("""
-                SELECT 1 FROM event_registrations
-                WHERE post_id = ? AND user_id = ?
-            """, (post_id, user_id)).fetchone()
-
-            if not result:
-                conn.execute("""
-                    INSERT INTO event_registrations (post_id, user_id)
-                    VALUES (?, ?)
-                """, (post_id, user_id))
-                conn.commit()
-
-            return redirect(url_for('openpost', post_id=post_id))
-
-        # --- Comment submission ---
-        content = request.form.get('content', '').strip()
-        if content:
-            conn.execute(
-                "INSERT INTO comments (post_id, user_id, content) VALUES (?, ?, ?)",
-                (post_id, user_id, content)
-            )
-            conn.commit()
-
-            # --- Create notification ---
-            post_owner_id = post_dict['user_id']
-            if post_dict['post_type'] == 'event' and post_dict['organiser_id']:
-                post_owner_id = post_dict['organiser_id']
-
-            if post_owner_id != user_id:
-                create_notification(
-                    user_id=post_owner_id,
-                    actor_id=user_id,
-                    notif_type="comment",
-                    message=f"{username} commented on your post",
-                    link=url_for('openpost', post_id=post_id),
-                    reference_id=post_id
-                )
-
-            return redirect(url_for('openpost', post_id=post_id))
-
-    # --- Fetch comments ---
-    comments = conn.execute("""
-        SELECT c.comment_id, c.content, c.created_at, u.username
-        FROM comments c
-        JOIN users u ON c.user_id = u.user_id
-        WHERE c.post_id = ?
-        ORDER BY c.created_at ASC
-    """, (post_id,)).fetchall()
-
-    # --- Check if current user is registered for the event ---
-    is_registered = False
-    if session.get('user_id') and post_dict['post_type'] == 'event':
-        result = conn.execute("""
-            SELECT 1 FROM event_registrations
-            WHERE post_id = ? AND user_id = ?
-        """, (post_id, session['user_id'])).fetchone()
-        is_registered = bool(result)
+    comments = fetch_comments(conn, post_id)
+    is_registered = check_event_registration(conn, post, current_user)
 
     return render_template(
-        'openpost.html',
-        post=post_dict,
+        "openpost.html",
+        post=post,
         comments=comments,
         is_registered=is_registered
     )
 
 @app.route('/create_post', methods=['GET', 'POST'])
+
 @app.route('/create_post/<int:community_id>', methods=['GET', 'POST'])
 def create_post(community_id=None):
     if 'username' not in session:

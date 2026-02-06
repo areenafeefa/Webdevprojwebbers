@@ -1,0 +1,25 @@
+
+.chat-bubble {
+  display: inline-block;
+  max-width: 320px;
+  padding: 10px 16px;
+  font-size: 0.9rem;
+  border-radius: 18px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.chat-bubble.sent {
+  background: linear-gradient(
+    135deg,
+    var(--color-primary),
+    #1e40af
+  );
+  color: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.chat-bubble.received {
+  background: var(--color-surface-alt);
+  border: 1px solid var(--color-border);
+}
