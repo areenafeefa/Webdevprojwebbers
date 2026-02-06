@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,6 +17,7 @@
     <title>{% block title %}MySite{% endblock %}</title>
     {% block head %}{% endblock %}
 </head>
+
 <body>
 
     <!-- TOP NAVBAR -->
@@ -40,57 +42,68 @@
                 <ul class="navbar-nav ms-auto align-items-center">
 
                     {% if logged_in %}
-                        <!-- Notification Bell -->
-                        <li class="nav-item dropdown">
-                            <a class="nav-link position-relative" href="#" data-bs-toggle="dropdown">
-                                <i class="fa fa-bell"></i>
-                                {% if unread_count > 0 %}
-                                    <span class="position-absolute top-0 start-100 translate-middle badge bg-danger rounded-pill">
-                                        {{ unread_count }}
-                                    </span>
-                                {% endif %}
-                            </a>
-                            <ul class="dropdown-menu dropdown-menu-end" style="width:300px;">
-                                {% for n in notifications %}
-                                    <li>
-                                        <a class="dropdown-item {% if not n.is_read %}fw-bold{% endif %}"
-                                           href="{{ url_for('mark_notification_read', notification_id=n.notification_id) }}">
-                                            {{ n.message }}
-                                            <br>
-                                            <small class="text-muted">{{ n.created_at }}</small>
-                                        </a>
-                                    </li>
-                                {% else %}
-                                    <li class="dropdown-item text-muted">No notifications</li>
-                                {% endfor %}
-                                <li><hr class="dropdown-divider"></li>
-                                <li>
-                                    <a class="dropdown-item text-center" href="{{ url_for('notifications_page') }}">
-                                        View All
-                                    </a>
-                                </li>
-                            </ul>
-                        </li>
+                    <!-- AI Help Bot -->
+                    <li class="nav-item me-3">
+                        <a class="nav-link position-relative" href="#" data-bs-toggle="modal"
+                            data-bs-target="#aiChatModal">
+                            <i class="fa fa-android" style="font-size: 1.2rem; color: black;"></i>
+                        </a>
+                    </li>
 
-                        <!-- Profile + Logout -->
-                        <li class="nav-item d-flex align-items-center me-3">
-                            <img src="{{ url_for('static', filename='profile.jpg') }}"
-                                 class="rounded-circle me-2" width="40" height="40">
-                            <a class="nav-link p-0" href="{{ url_for('userprofile', username=username) }}">
-                                {{ username }}
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
-                        </li>
+                    <!-- Notification Bell -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link position-relative" href="#" data-bs-toggle="dropdown">
+                            <i class="fa fa-bell"></i>
+                            {% if unread_count > 0 %}
+                            <span
+                                class="position-absolute top-0 start-100 translate-middle badge bg-danger rounded-pill">
+                                {{ unread_count }}
+                            </span>
+                            {% endif %}
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" style="width:300px;">
+                            {% for n in notifications %}
+                            <li>
+                                <a class="dropdown-item {% if not n.is_read %}fw-bold{% endif %}"
+                                    href="{{ url_for('mark_notification_read', notification_id=n.notification_id) }}">
+                                    {{ n.message }}
+                                    <br>
+                                    <small class="text-muted">{{ n.created_at }}</small>
+                                </a>
+                            </li>
+                            {% else %}
+                            <li class="dropdown-item text-muted">No notifications</li>
+                            {% endfor %}
+                            <li>
+                                <hr class="dropdown-divider">
+                            </li>
+                            <li>
+                                <a class="dropdown-item text-center" href="{{ url_for('notifications_page') }}">
+                                    View All
+                                </a>
+                            </li>
+                        </ul>
+                    </li>
+
+                    <!-- Profile + Logout -->
+                    <li class="nav-item d-flex align-items-center me-3">
+                        <img src="{{ url_for('static', filename='profile.jpg') }}" class="rounded-circle me-2"
+                            width="40" height="40">
+                        <a class="nav-link p-0" href="{{ url_for('userprofile', username=username) }}">
+                            {{ username }}
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
+                    </li>
                     {% else %}
-                        <!-- Login / Register -->
-                        <li class="nav-item">
-                            <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#loginModal">Login</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#registerModal">Register</a>
-                        </li>
+                    <!-- Login / Register -->
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#loginModal">Login</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#registerModal">Register</a>
+                    </li>
                     {% endif %}
 
                 </ul>
@@ -112,11 +125,12 @@
                     <div class="collapse" id="communityMenu">
                         <ul class="nav flex-column ms-3">
                             {% for community in global_communities %}
-                                <li class="nav-item">
-                                    <a class="nav-link" href="{{ url_for('community', community_id=community['community_id']) }}">
-                                        {{ community['name'] }}
-                                    </a>
-                                </li>
+                            <li class="nav-item">
+                                <a class="nav-link"
+                                    href="{{ url_for('community', community_id=community['community_id']) }}">
+                                    {{ community['name'] }}
+                                </a>
+                            </li>
                             {% endfor %}
                         </ul>
                     </div>
@@ -126,11 +140,12 @@
                     <div class="collapse" id="usercommunityMenu">
                         <ul class="nav flex-column ms-3">
                             {% for community in user_communities %}
-                                <li class="nav-item">
-                                    <a class="nav-link" href="{{ url_for('community', community_id=community['community_id']) }}">
-                                        {{ community['name'] }}
-                                    </a>
-                                </li>
+                            <li class="nav-item">
+                                <a class="nav-link"
+                                    href="{{ url_for('community', community_id=community['community_id']) }}">
+                                    {{ community['name'] }}
+                                </a>
+                            </li>
                             {% endfor %}
                         </ul>
                     </div>
@@ -161,12 +176,12 @@
                 </div>
                 <div class="modal-body">
                     {% with messages = get_flashed_messages(category_filter=['login_error']) %}
-                        {% if messages %}
-                            <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                                {{ messages[0] }}
-                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                            </div>
-                        {% endif %}
+                    {% if messages %}
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        {{ messages[0] }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                    {% endif %}
                     {% endwith %}
                     <form method="POST" action="{{ url_for('login') }}">
                         <div class="mb-3">
@@ -184,57 +199,86 @@
         </div>
     </div>
 
-<!-- REGISTER MODAL -->
-<div class="modal fade" id="registerModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Register</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="registerForm" method="POST" action="{{ url_for('register') }}">
-                    <div class="mb-3">
-                        <label class="form-label">Username</label>
-                        <input name="username" class="form-control" required minlength="3">
-                        <div class="invalid-feedback">Username must be at least 3 characters long.</div>
+    <!-- REGISTER MODAL -->
+    <div class="modal fade" id="registerModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Register</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="registerForm" method="POST" action="{{ url_for('register') }}">
+                        <div class="mb-3">
+                            <label class="form-label">Username</label>
+                            <input name="username" class="form-control" required minlength="3">
+                            <div class="invalid-feedback">Username must be at least 3 characters long.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Age</label>
+                            <input type="number" name="age" class="form-control" required min="13">
+                            <div class="invalid-feedback">You must be at least 13 years old.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Phone</label>
+                            <input name="phone" class="form-control" required pattern="^\d{10}$"
+                                placeholder="e.g., 1234567890">
+                            <div class="invalid-feedback">Enter a valid 10-digit phone number.</div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Email</label>
+                            <input type="email" name="email" class="form-control" required>
+                            <div class="invalid-feedback">Enter a valid email address.</div>
+                            <small class="text-muted">A verification email will be sent.</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Password</label>
+                            <input type="password" name="password" class="form-control" required minlength="8">
+                            <div class="invalid-feedback">Password must be at least 8 characters long.</div>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Register</button>
+                    </form>
+                    <div class="mt-2 text-center">
+                        Already have an account? <a href="#" data-bs-toggle="modal" data-bs-target="#loginModal"
+                            data-bs-dismiss="modal">Login now</a>.
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Age</label>
-                        <input type="number" name="age" class="form-control" required min="13">
-                        <div class="invalid-feedback">You must be at least 13 years old.</div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Phone</label>
-                        <input name="phone" class="form-control" required pattern="^\d{10}$" placeholder="e.g., 1234567890">
-                        <div class="invalid-feedback">Enter a valid 10-digit phone number.</div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Email</label>
-                        <input type="email" name="email" class="form-control" required>
-                        <div class="invalid-feedback">Enter a valid email address.</div>
-                        <small class="text-muted">A verification email will be sent.</small>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Password</label>
-                        <input type="password" name="password" class="form-control" required minlength="8">
-                        <div class="invalid-feedback">Password must be at least 8 characters long.</div>
-                    </div>
-                    <button type="submit" class="btn btn-primary w-100">Register</button>
-                </form>
-                <div class="mt-2 text-center">
-                    Already have an account? <a href="#" data-bs-toggle="modal" data-bs-target="#loginModal" data-bs-dismiss="modal">Login now</a>.
                 </div>
             </div>
         </div>
     </div>
-</div>
+
+    <!-- AI CHAT MODAL -->
+    <div class="modal fade" id="aiChatModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="fa fa-android me-2"></i>AI Assistant</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body bg-light" id="aiChatBody"
+                    style="min-height: 300px; max-height: 400px; overflow-y: auto;">
+                    <div class="d-flex flex-row justify-content-start mb-3">
+                        <div class="p-2 border rounded-3 bg-white text-dark shadow-sm" style="max-width: 80%;">
+                            Hello! I'm your AI Web Assistant. <br>
+                            Ask me about <b>messages</b>, <b>groups</b>, or <b>navigation</b>!
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <div class="input-group">
+                        <input type="text" id="aiChatInput" class="form-control" placeholder="Type a question...">
+                        <button class="btn btn-primary" id="aiChatSendBtn"><i class="fa fa-paper-plane"></i></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Bootstrap JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
     <script>
-        document.addEventListener("DOMContentLoaded", function() {
+        document.addEventListener("DOMContentLoaded", function () {
             // Sidebar toggle
             const toggleBtn = document.getElementById("sidebarToggle");
             const sidebar = document.getElementById("sidebar");
@@ -265,42 +309,203 @@
             }
 
             // Notifications AJAX
+            function checkNotifications() {
+                fetch('/api/notifications/count')
+                    .then(res => res.json())
+                    .then(data => {
+                        const notifLink = document.querySelector('.nav-item.dropdown > a');
+                        let badge = document.getElementById('notifBadge');
+
+                        if (data.count > 0) {
+                            if (!badge) {
+                                badge = document.createElement('span');
+                                badge.id = 'notifBadge';
+                                badge.className = 'position-absolute top-0 start-100 translate-middle badge bg-danger rounded-pill';
+                                notifLink.appendChild(badge);
+                            }
+                            badge.textContent = data.count;
+                        } else {
+                            if (badge) badge.remove();
+                        }
+                    })
+                    .catch(console.error);
+            }
+            setInterval(checkNotifications, 5000); // Check every 5 seconds
+
             const notifItems = document.querySelectorAll('.notif-item');
             notifItems.forEach(item => {
-                item.addEventListener('click', function(e) {
+                item.addEventListener('click', function (e) {
                     const notifId = this.dataset.id;
                     const badge = document.getElementById('notifBadge');
 
                     fetch('/mark_all_notifications', {
                         method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({notification_id: notifId})
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ notification_id: notifId })
                     })
-                    .then(res => res.json())
-                    .then(data => {
-                        if(data.status === 'success') {
-                            this.classList.remove('fw-bold');
-                            this.classList.add('text-muted');
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                this.classList.remove('fw-bold');
+                                this.classList.add('text-muted');
 
-                            if(badge) {
-                                let count = parseInt(badge.textContent);
-                                count = Math.max(count - 1, 0);
-                                if(count === 0) badge.remove();
-                                else badge.textContent = count;
+                                if (badge) {
+                                    let count = parseInt(badge.textContent);
+                                    count = Math.max(count - 1, 0);
+                                    if (count === 0) badge.remove();
+                                    else badge.textContent = count;
+                                }
                             }
-                        }
-                    }).catch(err => console.error(err));
+                        }).catch(err => console.error(err));
                 });
             });
 
-            {% with messages = get_flashed_messages(category_filter=['login_error']) %}
-                {% if messages %}
-                    var loginModal = new bootstrap.Modal(document.getElementById('loginModal'));
-                    loginModal.show();
-                {% endif %}
+            {% with messages = get_flashed_messages(category_filter = ['login_error']) %}
+            {% if messages %}
+            var loginModal = new bootstrap.Modal(document.getElementById('loginModal'));
+            loginModal.show();
+            {% endif %}
             {% endwith %}
+
+            // === AI CHATBOT LOGIC ===
+            const aiChatBody = document.getElementById('aiChatBody');
+            const aiChatInput = document.getElementById('aiChatInput');
+            const aiChatSendBtn = document.getElementById('aiChatSendBtn');
+
+            const knowledgeBase = {
+                // --- SMALL TALK ---
+                "hello": { text: "Hi there! How can I help you today?" },
+                "hi": { text: "Hello! Ready to assist you." },
+                "hey": { text: "Hey! What's on your mind?" },
+                "how are you": { text: "I'm just a bot, but I'm functioning perfectly! How about you?" },
+
+                // --- FEATURES ---
+                "message": {
+                    text: "You can send private messages or create group chats.",
+                    suggestions: [
+                        { text: "How to DM?", answer: "Go to the Sidebar > Find People > Click '+' to add a contact, then click their name to chat." },
+                        { text: "How to Group Chat?", answer: "Go to Sidebar > Click the 'Create Group' icon (users) > Select friends > Create." }
+                    ]
+                },
+                "group": {
+                    text: "Group chats let you talk with multiple friends!",
+                    suggestions: [
+                        { text: "Create Group", answer: "Click the 'Users' icon in the sidebar header to verify friends and start a group." },
+                        { text: "View Members", answer: "Click the blue 'i' icon next to a group name in the sidebar." }
+                    ]
+                },
+                "navigate": {
+                    text: "I can help you get around.",
+                    suggestions: [
+                        { text: "Home", answer: "The Home page shows your main feed." },
+                        { text: "Communities", answer: "Join communities to discuss specific topics." },
+                        { text: "Find Users", answer: "Use 'Find a Friend' to search for new connections." }
+                    ]
+                },
+                "friend": {
+                    text: "Friends allow you to chat and see private posts.",
+                    suggestions: [
+                        { text: "Add Friend", answer: "Go to 'Find a Friend' > Search Username > Click Add." },
+                        { text: "Requests", answer: "Check the Notification Bell for friend requests." }
+                    ]
+                },
+                // --- NEW PAGES ---
+                "home": {
+                    text: "The Home Page is your personal dashboard.",
+                    suggestions: [
+                        { text: "What's on it?", answer: "It shows latest posts from your friends and communities." },
+                        { text: "How to post?", answer: "Use the 'Create Post' button at the top of the feed." }
+                    ]
+                },
+                "explore": {
+                    text: "The Explore section helps you discover new content.",
+                    suggestions: [
+                        { text: "Communities", answer: "Browse global communities to find shared interests." },
+                        { text: "Trending", answer: "See what's popular across the platform." }
+                    ]
+                },
+                "community": {
+                    text: "Communities are groups based on interests.",
+                    suggestions: [
+                        { text: "Join", answer: "Click 'Join' on a community page to be a member." },
+                        { text: "My Communities", answer: "Check the sidebar under 'Communities' to see your joined groups." }
+                    ]
+                },
+                "find": {
+                    text: "The 'Find a Friend' page helps you connect.",
+                    suggestions: [
+                        { text: "Search", answer: "Type a username in the search bar to find specific people." },
+                        { text: "Recommendations", answer: "We might suggest people you know based on mutual friends." }
+                    ]
+                }
+            };
+
+            function appendAiMessage(text, isUser = false) {
+                const div = document.createElement('div');
+                div.className = `d-flex flex-row justify-content-${isUser ? 'end' : 'start'} mb-3`;
+
+                const bubble = document.createElement('div');
+                bubble.className = `p-2 border rounded-3 ${isUser ? 'bg-primary text-white' : 'bg-white text-dark shadow-sm'}`;
+                bubble.style.maxWidth = "80%";
+                bubble.innerHTML = text;
+
+                div.appendChild(bubble);
+                aiChatBody.appendChild(div);
+                aiChatBody.scrollTop = aiChatBody.scrollHeight;
+            }
+
+            function appendSuggestions(suggestions) {
+                const div = document.createElement('div');
+                div.className = "d-flex flex-wrap gap-2 mb-3 ms-2";
+
+                suggestions.forEach(s => {
+                    const btn = document.createElement('button');
+                    btn.className = "btn btn-sm btn-outline-primary rounded-pill";
+                    btn.innerText = s.text;
+                    btn.onclick = () => appendAiMessage(s.answer, false);
+                    div.appendChild(btn);
+                });
+
+                aiChatBody.appendChild(div);
+                aiChatBody.scrollTop = aiChatBody.scrollHeight;
+            }
+
+            function handleAiResponse() {
+                const query = aiChatInput.value.trim().toLowerCase();
+                if (!query) return;
+
+                appendAiMessage(query, true);
+                aiChatInput.value = '';
+
+                // Simple keyword matching
+                let foundMatch = false;
+                for (const [key, data] of Object.entries(knowledgeBase)) {
+                    if (query.includes(key)) {
+                        setTimeout(() => {
+                            appendAiMessage(data.text, false);
+                            if (data.suggestions) appendSuggestions(data.suggestions);
+                        }, 500);
+                        foundMatch = true;
+                        break;
+                    }
+                }
+
+                if (!foundMatch) {
+                    setTimeout(() => {
+                        appendAiMessage("I'm not sure about that. Try asking about 'messages', 'groups', or 'navigation'.", false);
+                    }, 500);
+                }
+            }
+
+            if (aiChatSendBtn) {
+                aiChatSendBtn.addEventListener('click', handleAiResponse);
+                aiChatInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') handleAiResponse();
+                });
+            }
         });
     </script>
 
 </body>
+
 </html>

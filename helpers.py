@@ -137,6 +137,22 @@ def init_db():
         )
     """)
 
+    # 3. SCHEMA MIGRATION FOR E2EE
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN public_key TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        conn.execute("ALTER TABLE messages ADD COLUMN is_encrypted INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        conn.execute("ALTER TABLE group_messages ADD COLUMN is_encrypted INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
 
     # comments table
     conn.execute("""
@@ -413,7 +429,86 @@ def mark_notification_read(notification_id):
     conn.commit()
 
 # Mark all notifications for a user as read
-def mark_all_notifications_read(user_id):
-    conn = get_db()
     conn.execute("UPDATE notifications SET is_read=1 WHERE user_id=?", (user_id,))
     conn.commit()
+
+# --- E2EE Helpers ---
+def get_user_public_key(user_id):
+    conn = get_db()
+    row = conn.execute("SELECT public_key FROM users WHERE user_id=?", (user_id,)).fetchone()
+    return row['public_key'] if row else None
+
+# --- Friend Helpers ---
+def get_friend_requests(user_id):
+    conn = get_db()
+    requests = conn.execute("""
+        SELECT f.friendship_id, u.username, p.display_name, f.created_at
+        FROM friends f
+        JOIN users u ON f.requester_id = u.user_id
+        JOIN user_profiles p ON u.user_id = p.user_id
+        WHERE f.addressee_id = ? AND f.status = 'pending'
+        ORDER BY f.created_at DESC
+    """, (user_id,)).fetchall()
+    return [dict(r) for r in requests]
+
+def is_friend(user_id, other_id):
+    conn = get_db()
+    exists = conn.execute("""
+        SELECT 1 FROM friends 
+        WHERE ((requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?))
+        AND status='accepted'
+    """, (user_id, other_id, other_id, user_id)).fetchone()
+    return True if exists else False
+
+def get_user_chats(user_id):
+    conn = get_db()
+    # Complex query to get last message for both direct messages and friends
+    chats_query = conn.execute("""
+        SELECT DISTINCT u.user_id, u.username, COALESCE(p.display_name, u.username) as display_name, u.public_key,
+               (SELECT content 
+                FROM messages 
+                WHERE (sender_id = ? AND recipient_id = u.user_id)
+                   OR (sender_id = u.user_id AND recipient_id = ?)
+                ORDER BY created_at DESC LIMIT 1
+               ) AS last_message,
+               (SELECT is_encrypted
+                FROM messages 
+                WHERE (sender_id = ? AND recipient_id = u.user_id)
+                   OR (sender_id = u.user_id AND recipient_id = ?)
+                ORDER BY created_at DESC LIMIT 1
+               ) AS last_message_encrypted,
+               (SELECT MAX(created_at) FROM messages m2
+                WHERE (m2.sender_id = u.user_id AND m2.recipient_id = ?)
+                   OR (m2.sender_id = ? AND m2.recipient_id = u.user_id)
+               ) AS last_message_time
+        FROM users u
+        LEFT JOIN user_profiles p ON u.user_id = p.user_id
+        WHERE u.user_id IN (
+            -- Users from message history
+            SELECT sender_id FROM messages WHERE recipient_id = ?
+            UNION
+            SELECT recipient_id FROM messages WHERE sender_id = ?
+            UNION
+            -- Users from friends (accepted)
+            SELECT requester_id FROM friends WHERE addressee_id = ? AND status='accepted'
+            UNION
+            SELECT addressee_id FROM friends WHERE requester_id = ? AND status='accepted'
+            UNION
+            -- Users from contacts table (legacy support)
+            SELECT contact_user_id FROM contacts WHERE user_id = ?
+        )
+        ORDER BY last_message_time DESC NULLS LAST, display_name ASC
+    """, (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id)).fetchall()
+
+    chats = []
+    for row in chats_query:
+        chats.append({
+            'user_id': row['user_id'],
+            'username': row['username'],
+            'display_name': row['display_name'],
+            'public_key': row['public_key'],
+            'last_message': row['last_message'] if row['last_message'] else "",
+            'last_message_encrypted': row['last_message_encrypted'] if row['last_message_encrypted'] else 0,
+            'last_message_time': row['last_message_time']
+        })
+    return chats

@@ -844,65 +844,105 @@ def chat(username):
         "SELECT user_id FROM users WHERE username = ?", (session['username'],)
     ).fetchone()['user_id']
 
-    # recipient
-    other_user = conn.execute("""
-        SELECT u.user_id, u.username, p.display_name
-        FROM users u
-        JOIN user_profiles p ON u.user_id=p.user_id
-        WHERE u.username=?
-    """, (username,)).fetchone()
-    if not other_user:
-        return "User not found"
+    other_user = None
+    current_group = None
+    messages = []
+    
+    # Check if it is a group chat
+    if username.startswith('group_'):
+        group_id = username.split('_')[1]
+        current_group = conn.execute("SELECT * FROM group_chats WHERE group_id=?", (group_id,)).fetchone()
+        
+        if not current_group:
+            return "Group not found", 404
+            
+        current_group = dict(current_group)
+        
+        # New Message (Group)
+        if request.method == 'POST':
+            content = request.form.get('content')
+            if content:
+                conn.execute(
+                    "INSERT INTO group_messages (group_id, sender_id, content) VALUES (?, ?, ?)",
+                    (group_id, current_user_id, content)
+                )
+                conn.commit()
+            return redirect(url_for('chat', username=username))
 
-    # new message
-    if request.method == 'POST':
-        content = request.form.get('content')
-        if content:
-            conn.execute(
-                "INSERT INTO messages (sender_id, recipient_id, content) VALUES (?, ?, ?)",
-                (current_user_id, other_user['user_id'], content)
-            )
-            conn.commit()
-        return redirect(url_for('chat', username=username))
+        # Fetch Group Messages
+        messages = conn.execute("""
+            SELECT m.content, m.created_at, u.username AS sender_username, COALESCE(p.display_name, u.username) as display_name
+            FROM group_messages m
+            JOIN users u ON m.sender_id = u.user_id
+            LEFT JOIN user_profiles p ON u.user_id = p.user_id
+            WHERE m.group_id = ?
+            ORDER BY m.created_at ASC
+        """, (group_id,)).fetchall()
 
-    # get all messages
-    messages = conn.execute("""
-        SELECT m.content, m.created_at, u.username AS sender_username
-        FROM messages m
-        JOIN users u ON m.sender_id = u.user_id
-        WHERE (m.sender_id=? AND m.recipient_id=?) OR (m.sender_id=? AND m.recipient_id=?)
-        ORDER BY m.created_at ASC
-    """, (current_user_id, other_user['user_id'], other_user['user_id'], current_user_id)).fetchall()
+        # Fetch Group Members (for Info Modal)
+        members = conn.execute("""
+            SELECT u.username, COALESCE(p.display_name, u.username) as display_name, u.user_id
+            FROM group_members gm
+            JOIN users u ON gm.user_id = u.user_id
+            LEFT JOIN user_profiles p ON u.user_id = p.user_id
+            WHERE gm.group_id = ?
+        """, (group_id,)).fetchall()
+        current_group['members'] = [dict(m) for m in members]
 
-    # list of users tht u hv talked to, needs to integrate friends Bruhh
-    chats_query = conn.execute("""
-        SELECT DISTINCT u.user_id, u.username, p.display_name,
-               (SELECT content 
-                FROM messages 
-                WHERE (sender_id=? AND recipient_id=u.user_id) OR (sender_id=u.user_id AND recipient_id=?)
-                ORDER BY created_at DESC LIMIT 1
-               ) AS last_message
-        FROM users u
-        JOIN user_profiles p ON u.user_id = p.user_id
-        WHERE u.user_id IN (
-            SELECT sender_id FROM messages WHERE recipient_id=?
-            UNION
-            SELECT recipient_id FROM messages WHERE sender_id=?
-            UNION
-            SELECT contact_user_id FROM contacts WHERE user_id=?
-        )
-    """, (current_user_id, current_user_id, current_user_id, current_user_id, current_user_id)).fetchall()
+    else:
+        # Direct Message Logic
+        other_user = conn.execute("""
+            SELECT u.user_id, u.username, COALESCE(p.display_name, u.username) as display_name, u.email, u.phone, u.age, p.bio
+            FROM users u
+            LEFT JOIN user_profiles p ON u.user_id=p.user_id
+            WHERE u.username=?
+        """, (username,)).fetchone()
+        
+        if not other_user:
+            return "User not found"
 
-    chats_list = []
-    for c in chats_query:
-        chats_list.append({
-            'username': c['username'],
-            'display_name': c['display_name'],
-            'last_message': c['last_message'] if c['last_message'] else "",
-            'online': c['username'] in online_users
-        })
+        # Enforce Friendship
+        friendship = conn.execute("""
+            SELECT status FROM friends 
+            WHERE (requester_id=? AND addressee_id=?) 
+               OR (requester_id=? AND addressee_id=?)
+        """, (current_user_id, other_user['user_id'], other_user['user_id'], current_user_id)).fetchone()
 
-    # --- UPDATED: FETCH GROUP CHATS ---
+        if not friendship or friendship['status'] != 'accepted':
+            # CHECK FOR EXISTING MESSAGES (Allow if they have history)
+            history_exists = conn.execute("""
+                SELECT 1 FROM messages 
+                WHERE (sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?)
+                LIMIT 1
+            """, (current_user_id, other_user['user_id'], other_user['user_id'], current_user_id)).fetchone()
+
+            if not history_exists:
+                flash("You need to be friends to chat!", "warning")
+                return redirect(url_for('notifications_page'))
+
+        # New Message (DM)
+        if request.method == 'POST':
+            content = request.form.get('content')
+            if content:
+                conn.execute(
+                    "INSERT INTO messages (sender_id, recipient_id, content) VALUES (?, ?, ?)",
+                    (current_user_id, other_user['user_id'], content)
+                )
+                conn.commit()
+            return redirect(url_for('chat', username=username))
+
+        # Fetch DM Messages
+        messages = conn.execute("""
+            SELECT m.content, m.created_at, u.username AS sender_username, m.is_encrypted, COALESCE(p.display_name, u.username) as display_name
+            FROM messages m
+            JOIN users u ON m.sender_id = u.user_id
+            LEFT JOIN user_profiles p ON u.user_id=p.user_id
+            WHERE (m.sender_id=? AND m.recipient_id=?) OR (m.sender_id=? AND m.recipient_id=?)
+            ORDER BY m.created_at ASC
+        """, (current_user_id, other_user['user_id'], other_user['user_id'], current_user_id)).fetchall()
+
+    # Common Context
+    chats_list = get_user_chats(current_user_id)
     groups_query = conn.execute("""
         SELECT g.group_id, g.name, g.description,
                (SELECT content FROM group_messages WHERE group_id = g.group_id ORDER BY created_at DESC LIMIT 1) as last_message
@@ -917,8 +957,9 @@ def chat(username):
         messages=messages,
         recipient=other_user,
         chats=chats_list,
-        groups=groups_query, # Pass groups to template
-        current_chat=other_user
+        groups=groups_query,
+        current_chat=other_user,
+        currentGroup=current_group
     )
 
 #on it rn ask chatgpt to exp this  was  Hard
@@ -941,6 +982,8 @@ def handle_message(data):
     sender_username = session.get('username')
     msg = data.get('msg')
     recipient_username = data.get('recipient')
+    is_encrypted = data.get('is_encrypted', 0) # Default to 0 (False)
+    
     if not sender_username or not msg or not recipient_username:
         return
 
@@ -951,22 +994,24 @@ def handle_message(data):
         return
     recipient_id = recipient_row['user_id']
 
-    conn.execute("INSERT INTO messages (sender_id, recipient_id, content) VALUES (?, ?, ?)",
-                 (sender_id, recipient_id, msg))
+    conn.execute("INSERT INTO messages (sender_id, recipient_id, content, is_encrypted) VALUES (?, ?, ?, ?)",
+                 (sender_id, recipient_id, msg, is_encrypted))
     
     conn.commit()
 
     # real time text
     recipient_sid = online_users.get(recipient_username)
+    payload = {'user': sender_username, 'msg': msg, 'is_encrypted': is_encrypted}
     if recipient_sid:
-        emit('message', {'user': sender_username, 'msg': msg}, room=recipient_sid)
-    emit('message', {'user': sender_username, 'msg': msg}, room=request.sid) 
+        emit('message', payload, room=recipient_sid)
+    emit('message', payload, room=request.sid) 
 
 @socketio.on('send_group_message')
 def handle_group_message(data):
     sender_username = session.get('username')
     msg = data.get('msg')
     group_id = data.get('group_id')
+    is_encrypted = data.get('is_encrypted', 0)
     
     if not sender_username or not msg or not group_id:
         return
@@ -976,8 +1021,8 @@ def handle_group_message(data):
     
     # Insert message
     conn.execute(
-        "INSERT INTO group_messages (group_id, sender_id, content) VALUES (?, ?, ?)",
-        (group_id, sender_id, msg)
+        "INSERT INTO group_messages (group_id, sender_id, content, is_encrypted) VALUES (?, ?, ?, ?)",
+        (group_id, sender_id, msg, is_encrypted)
     )
     conn.commit()
     
@@ -986,6 +1031,7 @@ def handle_group_message(data):
         'user': sender_username,
         'msg': msg,
         'group_id': group_id,
+        'is_encrypted': is_encrypted,
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     }, room=f'group_{group_id}')
 
@@ -1086,6 +1132,17 @@ def send_friend_request(username):
             VALUES (?, ?, 'pending')
         """, (requester_id, target['user_id']))
         conn.commit()
+        
+        # Notify the recipient
+        create_notification(
+            user_id=target['user_id'],
+            actor_id=requester_id,
+            notif_type='friend_request',
+            message=f"{session['username']} sent you a friend request",
+            link=url_for('notifications_page'), # Redirect to notifications page to accept/decline
+            reference_id=requester_id # using reference_id as the requester_id can be useful
+        )
+        
     except sqlite3.IntegrityError:
         pass  # already exists
 
@@ -1108,8 +1165,68 @@ def accept_friend(friendship_id):
         WHERE friendship_id=? AND addressee_id=?
     """, (friendship_id, user_id))
 
+    # Get the requester ID to notify them
+    friend_req = conn.execute("SELECT requester_id FROM friends WHERE friendship_id=?", (friendship_id,)).fetchone()
+    if friend_req:
+        create_notification(
+            user_id=friend_req['requester_id'],
+            actor_id=user_id,
+            notif_type='friend_accept',
+            message=f"{session['username']} accepted your friend request",
+            link=url_for('userprofile', username=session['username'])
+        )
+
     conn.commit()
-    return redirect(url_for('index'))
+    return redirect(url_for('notifications_page'))
+
+@app.route('/friend/decline/<int:friendship_id>', methods=['POST'])
+def decline_friend(friendship_id):
+    if 'username' not in session:
+        return redirect(url_for('login'))
+
+    conn = get_db()
+    user_id = conn.execute("SELECT user_id FROM users WHERE username=?", (session['username'],)).fetchone()['user_id']
+
+    # Delete the request
+    conn.execute("""
+        DELETE FROM friends
+        WHERE friendship_id=? AND addressee_id=? AND status='pending'
+    """, (friendship_id, user_id))
+    
+    conn.commit()
+    return redirect(url_for('notifications_page'))
+
+# --- E2EE Key Management Endpoints ---
+
+@app.route('/api/keys/publish', methods=['POST'])
+def publish_key():
+    if 'username' not in session:
+        return {'error': 'Not logged in'}, 401
+    
+    data = request.get_json()
+    public_key = data.get('public_key')
+    
+    if not public_key:
+        return {'error': 'No key provided'}, 400
+        
+    conn = get_db()
+    conn.execute("UPDATE users SET public_key = ? WHERE username = ?", (public_key, session['username']))
+    conn.commit()
+    
+    return {'status': 'success'}
+
+@app.route('/api/keys/<int:user_id>', methods=['GET'])
+def get_user_key(user_id):
+    if 'username' not in session:
+        return {'error': 'Not logged in'}, 401
+        
+    conn = get_db()
+    row = conn.execute("SELECT public_key FROM users WHERE user_id = ?", (user_id,)).fetchone()
+    
+    if not row:
+        return {'error': 'User not found'}, 404
+        
+    return {'public_key': row['public_key']}
 
 @app.route('/my_messages', methods=['GET', 'POST'])
 def my_messages():
@@ -1134,42 +1251,8 @@ def my_messages():
         return redirect(url_for('my_messages'))
 
     # who have u texted so far + your contacts
-    chats_query = conn.execute("""
-        SELECT DISTINCT u.user_id, u.username, p.display_name,
-               (SELECT content 
-                FROM messages 
-                WHERE (sender_id = ? AND recipient_id = u.user_id)
-                   OR (sender_id = u.user_id AND recipient_id = ?)
-                ORDER BY created_at DESC LIMIT 1
-               ) AS last_message,
-               (SELECT MAX(created_at) FROM messages m2
-                WHERE (m2.sender_id = u.user_id AND m2.recipient_id = ?)
-                   OR (m2.sender_id = ? AND m2.recipient_id = u.user_id)
-               ) AS last_message_time
-        FROM users u
-        JOIN user_profiles p ON u.user_id = p.user_id
-        WHERE u.user_id IN (
-            -- Users from message history
-            SELECT sender_id FROM messages WHERE recipient_id = ?
-            UNION
-            SELECT recipient_id FROM messages WHERE sender_id = ?
-            UNION
-            -- Users from contacts
-            SELECT contact_user_id FROM contacts WHERE user_id = ?
-        )
-        ORDER BY last_message_time DESC NULLS LAST, p.display_name ASC
-    """, (current_user_id, current_user_id, current_user_id, current_user_id, current_user_id, current_user_id, current_user_id)).fetchall()
-
     # list of dictionary
-    chats = []
-    for row in chats_query:
-        chats.append({
-            'user_id': row['user_id'],
-            'username': row['username'],
-            'display_name': row['display_name'],
-            'last_message': row['last_message'] if row['last_message'] else "",
-            'online': row['username'] in online_users
-        })
+    chats = get_user_chats(current_user_id)
 
     # --- UPDATED: FETCH GROUP CHATS HERE TOO ---
     groups_query = conn.execute("""
@@ -1260,41 +1343,7 @@ def get_chats_api():
         "SELECT user_id FROM users WHERE username = ?", (session['username'],)
     ).fetchone()['user_id']
     
-    chats_query = conn.execute("""
-        SELECT DISTINCT u.user_id, u.username, p.display_name,
-               (SELECT content 
-                FROM messages 
-                WHERE (sender_id = ? AND recipient_id = u.user_id)
-                   OR (sender_id = u.user_id AND recipient_id = ?)
-                ORDER BY created_at DESC LIMIT 1
-               ) AS last_message,
-               (SELECT MAX(created_at) FROM messages m2
-                WHERE (m2.sender_id = u.user_id AND m2.recipient_id = ?)
-                   OR (m2.sender_id = ? AND m2.recipient_id = u.user_id)
-               ) AS last_message_time
-        FROM users u
-        JOIN user_profiles p ON u.user_id = p.user_id
-        WHERE u.user_id IN (
-            SELECT sender_id FROM messages WHERE recipient_id = ?
-            UNION
-            SELECT recipient_id FROM messages WHERE sender_id = ?
-            UNION
-            SELECT contact_user_id FROM contacts WHERE user_id = ?
-        )
-        ORDER BY last_message_time DESC NULLS LAST, p.display_name ASC
-    """, (current_user_id, current_user_id, current_user_id, current_user_id, current_user_id, current_user_id, current_user_id)).fetchall()
-    
-    chats = []
-    for row in chats_query:
-        chats.append({
-            'user_id': row['user_id'],
-            'username': row['username'],
-            'display_name': row['display_name'],
-            'last_message': row['last_message'] if row['last_message'] else "",
-            'online': row['username'] in online_users
-        })
-    
-
+    chats = get_user_chats(current_user_id)
     return {'chats': chats}
 
 @app.route('/api/chat-messages/<username>', methods=['GET'])
@@ -2216,6 +2265,15 @@ def talk_disconnect(session_id):
 
     return redirect(url_for("game_start_page", game_type="talk"))
 
+@app.route('/api/notifications/count')
+def get_notification_count():
+    if not session.get('user_id'):
+        return jsonify({'count': 0})
+    
+    conn = get_db()
+    count = conn.execute("SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = 0", (session['user_id'],)).fetchone()[0]
+    return jsonify({'count': count})
+
 @app.route('/notifications')
 def notifications_page():
     if 'user_id' not in session:
@@ -2236,6 +2294,17 @@ def notifications_page():
         LIMIT ? OFFSET ?
     """, (session['user_id'], per_page, offset)).fetchall()
 
+    # Fetch pending friend requests
+    # Fetch pending friend requests
+    friend_requests = conn.execute("""
+        SELECT f.friendship_id, u.username, COALESCE(p.display_name, u.username) as display_name, f.created_at
+        FROM friends f
+        JOIN users u ON f.requester_id = u.user_id
+        LEFT JOIN user_profiles p ON u.user_id = p.user_id
+        WHERE f.addressee_id = ? AND f.status = 'pending'
+        ORDER BY f.created_at DESC
+    """, (session['user_id'],)).fetchall()
+
     total = conn.execute("""
         SELECT COUNT(*) as count
         FROM notifications
@@ -2247,11 +2316,24 @@ def notifications_page():
     return render_template(
         'notifications.html',
         notifications=notifications,
+        friend_requests=friend_requests,
+        unread_count=count_unread_notifications(session['user_id']),
         page=page,
         total_pages=total_pages
     )
 
-@app.route('/notifications/mark_all_notifications')
+@app.route('/notifications/read/<int:notification_id>', methods=['POST'])
+def read_notification(notification_id):
+    if 'user_id' not in session:
+        return redirect(url_for('index'))
+    
+    conn = get_db()
+    conn.execute("UPDATE notifications SET is_read = 1 WHERE notification_id = ? AND user_id = ?", (notification_id, session['user_id']))
+    conn.commit()
+    
+    return redirect(url_for('notifications_page'))
+
+@app.route('/notifications/mark_all_notifications', methods=['POST'])
 def mark_all_notifications():
     if 'user_id' not in session:
         return redirect(url_for('index'))
@@ -2291,8 +2373,47 @@ def mark_notification_read(notification_id):
 
     return redirect(notification['link'] if notification['link'] else url_for('notifications_page'))
 
+    return redirect(notification['link'] if notification['link'] else url_for('notifications_page'))
+
+@app.route('/api/search_users')
+def api_search_users():
+    if 'user_id' not in session:
+        return jsonify([]), 401
+    
+    query = request.args.get('q', '').strip()
+    if not query or len(query) < 2:
+        return jsonify([])
+    
+    conn = get_db()
+    current_uid = conn.execute("SELECT user_id FROM users WHERE username = ?", (session['username'],)).fetchone()['user_id']
+    
+    cursor = conn.execute("""
+        SELECT u.username, COALESCE(up.display_name, u.username) as display_name,
+               (SELECT status FROM friends f WHERE (f.requester_id = ? AND f.addressee_id = u.user_id) OR (f.requester_id = u.user_id AND f.addressee_id = ?) ) as friend_status,
+               (SELECT requester_id FROM friends f WHERE (f.requester_id = ? AND f.addressee_id = u.user_id) OR (f.requester_id = u.user_id AND f.addressee_id = ?) ) as last_requester_id
+        FROM users u
+        LEFT JOIN user_profiles up ON u.user_id = up.user_id
+        WHERE (u.username LIKE ? OR COALESCE(up.display_name, u.username) LIKE ?)
+        AND u.username != ?
+        LIMIT 10
+    """, (current_uid, current_uid, current_uid, current_uid, f'%{query}%', f'%{query}%', session['username']))
+    
+    users = []
+    for row in cursor.fetchall():
+        u = dict(row)
+        # Determine specific state
+        status = row['friend_status']
+        requester = row['last_requester_id']
+        
+        u['is_friend'] = (status == 'accepted')
+        u['request_sent'] = (status == 'pending' and requester == current_uid)
+        u['request_received'] = (status == 'pending' and requester != current_uid)
+        users.append(u)
+        
+    return jsonify(users)
+
 # --- Main ---
 if __name__ == "__main__":
     init_db()
     # FIX: use_reloader=False prevents the WinError 10038 crash
-    socketio.run(app, debug=True,allow_unsafe_werkzeug=True, use_reloader=True) 
+    socketio.run(app, debug=True, allow_unsafe_werkzeug=True, use_reloader=False, port=5001) 
