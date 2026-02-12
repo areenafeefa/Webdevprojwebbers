@@ -1,9 +1,8 @@
 # imports
 import sqlite3
-import requests
 import json
 from flask import Flask, render_template, session, redirect, url_for, request, g, flash, jsonify
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit, join_room
 
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -32,12 +31,14 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
 
 # Initialize Socket.IO
-socketio = SocketIO(app, manage_session=False)
+socketio = SocketIO(app, manage_session=False,  cors_allowed_origins="*")
 app.jinja_env.filters['mention'] = mention
 
 # Dictionary to track online users: username -> sid
 online_users = {}
-
+# Connect to your DB
+conn = sqlite3.connect('database.db')
+cursor = conn.cursor()
 # --- Inject login info and globals to all templates ---
 @app.context_processor
 def inject_globals():
@@ -662,13 +663,11 @@ def logout():
     session.clear()  # This deletes EVERYTHING in the session
     return redirect(url_for('index'))
 
-# User profile
 @app.route('/userprofile/<username>')
 def userprofile(username):
     conn = get_db()
 
-    # 1. Get the ID of the person CURRENTLY logged in (to check for likes)
-    # If not logged in, we set it to 0 or None so the subqueries don't crash
+    # 1. Get the ID of the person CURRENTLY logged in (to check for likes and friendship)
     viewer_id = session.get('user_id', 0) 
 
     # --- Profile info ---
@@ -709,8 +708,7 @@ def userprofile(username):
         ORDER BY p.created_at DESC
     """, (viewer_id, profile_owner_id)).fetchall() 
 
-    # --- Comments by user (INNER JOIN ensures post must exist) ---
-    # This automatically hides comments on deleted posts!
+    # --- Comments by user ---
     comments = conn.execute("""
         SELECT cm.comment_id, cm.content, cm.created_at,
                p.post_id, p.title AS post_title,
@@ -726,12 +724,20 @@ def userprofile(username):
         ORDER BY cm.created_at DESC
     """, (viewer_id, profile_owner_id)).fetchall()
 
+    # --- Friendship info ---
+    friendship = conn.execute("""
+        SELECT *
+        FROM friends
+        WHERE (requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?)
+    """, (viewer_id, profile_owner_id, profile_owner_id, viewer_id)).fetchone()
+
     return render_template(
         'userprofile.html',
         profile=profile,
         communities=user_communities,
         posts=posts,
-        comments=comments
+        comments=comments,
+        friendship=friendship  # pass it to template
     )
 
 # idk reddit thing to avoid some error i copy pasted never removed js keep it idk mayve its holding everyt together
@@ -1030,7 +1036,6 @@ def leave_community(community_id):
 
     return redirect(url_for('community', community_id=community_id))
 
-#
 #  Not even implemented We hope it works 
 @app.route('/friend/request/<username>', methods=['POST'])
 def send_friend_request(username):
@@ -1121,8 +1126,6 @@ def decline_friend(friendship_id):
     
     conn.commit()
     return redirect(url_for('notifications_page'))
-
-# --- E2EE Key Management Endpoints ---
 
 @app.route('/api/keys/publish', methods=['POST'])
 def publish_key():
@@ -1257,7 +1260,6 @@ def get_all_users():
         print(f"Error in get_all_users: {e}")
         return {'error': str(e), 'users': []}, 500
   
-
 @app.route('/api/chats', methods=['GET'])
 def get_chats_api():
     """API endpoint to get updated chats list"""
@@ -2221,7 +2223,6 @@ def notifications_page():
     """, (session['user_id'], per_page, offset)).fetchall()
 
     # Fetch pending friend requests
-    # Fetch pending friend requests
     friend_requests = conn.execute("""
         SELECT f.friendship_id, u.username, COALESCE(p.display_name, u.username) as display_name, f.created_at
         FROM friends f
@@ -2274,7 +2275,6 @@ def mark_all_notifications():
 
     return redirect(url_for('notifications_page'))
 
-
 @app.route('/notifications/read/<int:notification_id>')
 def mark_notification_read(notification_id):
     if 'user_id' not in session:
@@ -2296,8 +2296,6 @@ def mark_notification_read(notification_id):
         WHERE notification_id = ?
     """, (notification_id,))
     conn.commit()
-
-    return redirect(notification['link'] if notification['link'] else url_for('notifications_page'))
 
     return redirect(notification['link'] if notification['link'] else url_for('notifications_page'))
 
@@ -2337,9 +2335,380 @@ def api_search_users():
         users.append(u)
         
     return jsonify(users)
+# -------------------------
+# PRE-INV GAMES PAGE
+# -------------------------
+@app.route('/ticgame')
+def ticgame():
+    if 'user_id' not in session:
+        return redirect('/login')
+
+    user_id = session['user_id']
+    conn = get_db()
+
+    friends = conn.execute("""
+        SELECT u.user_id AS friend_id, u.username AS display_name
+        FROM users u
+        JOIN friends f ON 
+            (f.requester_id = ? AND f.addressee_id = u.user_id) OR
+            (f.addressee_id = ? AND f.requester_id = u.user_id)
+        WHERE f.status = 'accepted'
+        ORDER BY display_name
+    """, (user_id, user_id)).fetchall()
+
+    pending_invites = conn.execute("""
+        SELECT i.invite_id, i.game_type, u.username AS sender_name
+        FROM game_invites i
+        JOIN users u ON u.user_id = i.sender_id
+        WHERE i.receiver_id = ? AND i.status='pending'
+    """, (user_id,)).fetchall()
+
+    outgoing_invites = conn.execute("""
+        SELECT i.invite_id, i.game_type, u.username AS receiver_name
+        FROM game_invites i
+        JOIN users u ON u.user_id = i.receiver_id
+        WHERE i.sender_id = ? AND i.status='pending'
+    """, (user_id,)).fetchall()
+
+    return render_template(
+        "ticgame.html",
+        contacts=friends,
+        pending_invites=pending_invites,
+        outgoing_invites=outgoing_invites
+    )
+
+
+# -------------------------
+# CREATE INVITE
+@app.route('/invite_game/<int:opponent_id>/<game_type>')
+def invite_game(opponent_id, game_type):
+    if 'user_id' not in session:
+        return redirect('/login')
+
+    sender = session['user_id']
+    conn = get_db()
+
+    # Prevent duplicate pending invite
+    existing = conn.execute("""
+        SELECT invite_id FROM game_invites
+        WHERE sender_id=? AND receiver_id=? AND status='pending'
+    """, (sender, opponent_id)).fetchone()
+
+    if existing:
+        return jsonify({'invite_id': existing['invite_id'], 'duplicate': True})
+
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO game_invites (sender_id, receiver_id, game_type, status)
+        VALUES (?, ?, ?, 'pending')
+    """, (sender, opponent_id, game_type))
+
+    invite_id = cursor.lastrowid
+    conn.commit()
+
+    sender_name = conn.execute(
+        "SELECT username FROM users WHERE user_id=?",
+        (sender,)
+    ).fetchone()['username']
+
+    socketio.emit('new_invite', {
+        'invite_id': invite_id,
+        'game_type': game_type,
+        'sender_name': sender_name
+    }, room=f"user_{opponent_id}")
+
+    return jsonify({'invite_id': invite_id})
+
+
+# -------------------------
+# ACCEPT INVITE
+@app.route('/accept_invite/<int:invite_id>')
+def accept_invite(invite_id):
+    if 'user_id' not in session:
+        return redirect('/login')
+
+    user_id = session['user_id']
+    conn = get_db()
+
+    invite = conn.execute("""
+        SELECT * FROM game_invites
+        WHERE invite_id=? AND status='pending'
+    """, (invite_id,)).fetchone()
+
+    if not invite:
+        return "Invite not found"
+
+    if invite['receiver_id'] != user_id:
+        return "Unauthorized", 403
+
+    game_id = start_game(
+        invite['sender_id'],
+        invite['receiver_id'],
+        invite['game_type']
+    )
+
+    conn.execute("""
+        UPDATE game_invites
+        SET status='accepted'
+        WHERE invite_id=?
+    """, (invite_id,))
+    conn.commit()
+
+    # Notify sender directly
+    socketio.emit(
+        'game_started',
+        {'game_id': game_id},
+        room=f"user_{invite['sender_id']}"
+    )
+
+    # Remove invite from both UIs
+    socketio.emit(
+        'invite_handled',
+        {'invite_id': invite_id},
+        room=f"user_{invite['sender_id']}"
+    )
+    socketio.emit(
+        'invite_handled',
+        {'invite_id': invite_id},
+        room=f"user_{invite['receiver_id']}"
+    )
+
+    return redirect(f"/game/{game_id}")
+
+# -------------------------
+# DECLINE INVITE
+# -------------------------
+@app.route('/decline_invite/<int:invite_id>')
+def decline_invite(invite_id):
+    conn = get_db()
+    conn.execute("UPDATE game_invites SET status='declined' WHERE invite_id=?", (invite_id,))
+    conn.commit()
+    return redirect('/ticgame')
+
+@app.route('/cancel_invite/<int:invite_id>')
+def cancel_invite(invite_id):
+    if 'user_id' not in session:
+        return redirect('/login')
+
+    user_id = session['user_id']
+    conn = get_db()
+
+    invite = conn.execute("""
+        SELECT * FROM game_invites
+        WHERE invite_id=? AND sender_id=? AND status='pending'
+    """, (invite_id, user_id)).fetchone()
+
+    if not invite:
+        return "Invalid invite", 403
+
+    conn.execute("UPDATE game_invites SET status='cancelled' WHERE invite_id=?", (invite_id,))
+    conn.commit()
+
+    socketio.emit('invite_cancelled', {
+        'invite_id': invite_id
+    }, room=f"user_{invite['receiver_id']}")
+
+    return redirect('/ticgame')
+
+# -------------------------
+# GAME VIEW
+# -------------------------
+@app.route('/game/<int:game_id>')
+def game_view(game_id):
+    game = get_game(game_id)
+    if not game:
+        return "Game not found"
+
+    if game['game_type'] == 'tictactoe':
+        return render_template(
+            "tictactoe.html",
+            game_id=game_id,
+            board=game['board_state'],
+            turn=game['current_turn'],
+            winner=game['winner']
+        )
+    else:
+        return f"{game['game_type']} coming soon!"
+
+
+# -------------------------
+# SOCKET.IO LOGIC
+# -------------------------
+# Sender joins a temporary invite room while waiting for acceptance
+@socketio.on('join_invite_room')
+def join_invite_room(data):
+    invite_id = data['invite_id']
+    join_room(f"invite_{invite_id}")
+
+# Both players join the game room once on /game/<id>
+
+@socketio.on('join_user_room')
+def join_user_room(data):
+    join_room(f"user_{data['user_id']}")
+
+@socketio.on('join_game')
+def join_game(data):
+    join_room(f"game_{data['game_id']}")
+
+@socketio.on('make_move')
+def handle_move(data):
+    user_id = session.get('user_id')
+    game_id = data['game_id']
+    position = data['position']
+
+    error = make_move(game_id, user_id, position)
+    if error:
+        emit('error', {'message': error})
+        return
+
+    game = get_game(game_id)
+
+    emit('update_board', {
+        'board': game["board_state"],
+        'turn': game["current_turn"],
+        'winner': game["winner"]
+    }, room=f"game_{game_id}")
+
+@app.route('/create_ludo_lobby', methods=['POST'])
+def create_ludo_lobby():
+    if 'user_id' not in session:
+        return redirect('/login')
+
+    creator_id = session['user_id']
+    selected_players = request.json.get('players', [])
+
+    if len(selected_players) < 1:
+        return jsonify({'error': 'Select at least 1 friend'}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "INSERT INTO game_lobbies (creator_id, game_type) VALUES (?, 'ludo')",
+        (creator_id,)
+    )
+    lobby_id = cursor.lastrowid
+
+    # Add creator
+    cursor.execute(
+        "INSERT INTO lobby_players (lobby_id, user_id) VALUES (?, ?)",
+        (lobby_id, creator_id)
+    )
+
+    # Add invited players
+    for player in selected_players:
+        cursor.execute(
+            "INSERT INTO lobby_players (lobby_id, user_id) VALUES (?, ?)",
+            (lobby_id, player)
+        )
+
+        # Notify invited players
+        socketio.emit(
+            'ludo_invite',
+            {'lobby_id': lobby_id},
+            room=f"user_{player}"
+        )
+
+    conn.commit()
+
+    return jsonify({'lobby_id': lobby_id})
+
+
+@app.route('/join_ludo_lobby/<int:lobby_id>')
+def join_ludo_lobby(lobby_id):
+    if 'user_id' not in session:
+        return redirect('/login')
+
+    user_id = session['user_id']
+    conn = get_db()
+
+    conn.execute("""
+        INSERT OR IGNORE INTO lobby_players (lobby_id, user_id)
+        VALUES (?, ?)
+    """, (lobby_id, user_id))
+    conn.commit()
+
+    socketio.emit(
+        'lobby_update',
+        {'lobby_id': lobby_id},
+        room=f"lobby_{lobby_id}"
+    )
+
+    return redirect(f"/ludo_lobby/{lobby_id}")
+
+@app.route('/start_ludo/<int:lobby_id>')
+def start_ludo(lobby_id):
+    conn = get_db()
+
+    players = conn.execute("""
+        SELECT user_id FROM lobby_players
+        WHERE lobby_id=?
+    """, (lobby_id,)).fetchall()
+
+    if len(players) < 2:
+        return "Need at least 2 players"
+
+    game_id = start_game_ludo(lobby_id)
+
+    conn.execute(
+        "UPDATE game_lobbies SET status='started' WHERE lobby_id=?",
+        (lobby_id,)
+    )
+    conn.commit()
+
+    socketio.emit(
+        'ludo_started',
+        {'game_id': game_id},
+        room=f"lobby_{lobby_id}"
+    )
+
+    return redirect(f"/game/{game_id}")
+
+@socketio.on('join_ludo_game')
+def join_ludo_game(data):
+    game_id = data['game_id']
+    join_room(f"game_{game_id}")
+
+@socketio.on('roll_dice')
+def roll_dice(data):
+    game_id = data['game_id']
+    user_id = session['user_id']
+
+    game = get_game(game_id)
+
+    if game['current_turn'] != user_id:
+        emit('error', {'message': 'Not your turn'})
+        return
+
+    import random
+    dice = random.randint(1,6)
+
+    update_dice(game_id, dice)
+
+    emit('dice_rolled', {'dice': dice}, room=f"game_{game_id}")
+
+@socketio.on('move_token')
+def move_token(data):
+    game_id = data['game_id']
+    token_index = data['token_index']
+    user_id = session['user_id']
+
+    error = ludo_move(game_id, user_id, token_index)
+
+    if error:
+        emit('error', {'message': error})
+        return
+
+    game = get_game(game_id)
+
+    emit(
+        'ludo_update',
+        game,
+        room=f"game_{game_id}"
+    )
 
 # --- Main ---
 if __name__ == "__main__":
     init_db()
     # FIX: use_reloader=False prevents the WinError 10038 crash
-    socketio.run(app, debug=True, allow_unsafe_werkzeug=True, use_reloader=False, port=5001) 
+    socketio.run(app, debug=True) 

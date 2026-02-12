@@ -33,7 +33,7 @@
         <div class="card-body p-4">
             <h2 class="card-title fw-bold">{{ post['title'] | mention | safe }}</h2>
             <h6 class="text-muted mb-3">
-                By <a href="{{ url_for('userprofile', username=post['username']) }}" class="commenter-link">@{{ post['username'] }}</a> 
+                By <a href="{{ url_for('userprofile', username=post['display_username']) }}" class="commenter-link">@{{ post['display_username'] }}</a> 
                 | {{ post['created_at'] }}
             </h6>
             <hr>

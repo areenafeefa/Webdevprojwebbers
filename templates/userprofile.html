@@ -54,13 +54,42 @@
             <p class="mb-0 text-dark">{{ profile['bio'] | mention | safe if profile['bio'] else "No bio yet." }}</p>
         </div>
 
-        {% if session.get('username') and session.get('username') != profile['username'] %}
-        <div class="ms-auto">
-            <a href="{{ url_for('chat', username=profile['username']) }}" class="btn btn-primary rounded-pill px-4 shadow-sm">
-                <i class="fa fa-envelope me-1"></i> Message
-            </a>
-        </div>
+{% if session.get('username') and session.get('username') != profile['username'] %}
+<div class="ms-auto d-flex align-items-center gap-2">
+    <!-- Add Friend Button -->
+    {% if not friendship %}
+        <form action="{{ url_for('send_friend_request', username=profile['username']) }}" method="post">
+            <button type="submit" class="btn btn-outline-primary rounded-pill px-3">
+                Add Friend
+            </button>
+        </form>
+    {% elif friendship.status == 'pending' %}
+        {% if friendship.requester_id == profile['user_id'] %}
+            <!-- They sent request to you -->
+            <form action="{{ url_for('accept_friend', friendship_id=friendship.friendship_id) }}" method="post">
+                <button type="submit" class="btn btn-success rounded-pill px-3">
+                    Accept Request
+                </button>
+            </form>
+        {% else %}
+            <!-- You sent request to them -->
+            <button class="btn btn-secondary rounded-pill px-3" disabled>
+                Request Sent
+            </button>
         {% endif %}
+    {% elif friendship.status == 'accepted' %}
+        <button class="btn btn-dark rounded-pill px-3" disabled>
+            Friend
+        </button>
+    {% endif %}
+
+    <!-- Message Button -->
+    <a href="{{ url_for('chat', username=profile['username']) }}" class="btn btn-primary rounded-pill px-4 shadow-sm">
+        <i class="fa fa-envelope me-1"></i> Message
+    </a>
+</div>
+{% endif %}
+
     </div>
 
     <ul class="nav nav-tabs border-0" id="profileTabs" role="tablist">

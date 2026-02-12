@@ -300,6 +300,63 @@ def init_db():
         )
     """)
     
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS tictactoe_games (
+        game_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_x_id INTEGER NOT NULL,
+        player_o_id INTEGER NOT NULL,
+        board_state TEXT NOT NULL DEFAULT '---------',
+        current_turn TEXT NOT NULL DEFAULT 'X',
+        winner TEXT DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        finished_at DATETIME,
+        FOREIGN KEY(player_x_id) REFERENCES users(user_id) ON DELETE CASCADE,
+        FOREIGN KEY(player_o_id) REFERENCES users(user_id) ON DELETE CASCADE
+    )
+    
+    """)
+
+    conn.execute("""  CREATE TABLE IF NOT EXISTS games_2 (
+            game_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_type TEXT NOT NULL,       -- 'tictactoe', 'connect4', etc.
+            player_x_id INTEGER NOT NULL,
+            player_o_id INTEGER NOT NULL,
+            board_state TEXT,              -- Can be JSON or string depending on game
+            current_turn TEXT,
+            winner TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            finished_at DATETIME,
+            FOREIGN KEY(player_x_id) REFERENCES users(user_id) ON DELETE CASCADE,
+            FOREIGN KEY(player_o_id) REFERENCES users(user_id) ON DELETE CASCADE
+        ) """)
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS game_invites (
+        invite_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender_id INTEGER NOT NULL,
+        receiver_id INTEGER NOT NULL,
+        game_type TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',   -- pending / accepted / declined
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(sender_id) REFERENCES users(user_id) ON DELETE CASCADE,
+        FOREIGN KEY(receiver_id) REFERENCES users(user_id) ON DELETE CASCADE
+    )
+    """)
+    conn.execute("""CREATE TABLE IF NOT EXISTS game_lobbies (
+    lobby_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    creator_id INTEGER NOT NULL,
+    game_type TEXT NOT NULL,
+    status TEXT DEFAULT 'waiting', -- waiting | started
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)""")
+
+    conn.execute("""CREATE TABLE IF NOT EXISTS lobby_players (
+    lobby_id INTEGER,
+    user_id INTEGER,
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (lobby_id, user_id)
+)""")
+
+
     # group members table
     conn.execute("""
         CREATE TABLE IF NOT EXISTS group_members (
@@ -312,7 +369,24 @@ def init_db():
             FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
         )
     """)
-    
+    # tic-tac-toe games table
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS tictactoe_games (
+        game_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id INTEGER NOT NULL,
+        player_x_id INTEGER NOT NULL,
+        player_o_id INTEGER NOT NULL,
+        board_state TEXT DEFAULT '---------',  -- 9 chars, '-' = empty
+        current_turn TEXT DEFAULT 'X',         -- 'X' or 'O'
+        winner TEXT DEFAULT NULL,              -- 'X', 'O', 'Draw', or NULL
+        started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        finished_at DATETIME DEFAULT NULL,
+        FOREIGN KEY(group_id) REFERENCES group_chats(group_id) ON DELETE CASCADE,
+        FOREIGN KEY(player_x_id) REFERENCES users(user_id) ON DELETE CASCADE,
+        FOREIGN KEY(player_o_id) REFERENCES users(user_id) ON DELETE CASCADE
+    )
+    """)
+
     # group messages table
     conn.execute("""
         CREATE TABLE IF NOT EXISTS group_messages (
@@ -552,6 +626,9 @@ def fetch_post(conn, post_id):
     )
 
     return post
+
+
+
 def handle_event_registration(conn, post, user):
     if post["post_type"] != "event":
         return False
@@ -626,4 +703,246 @@ def fetch_comments(conn, post_id):
         WHERE c.post_id = ?
         ORDER BY c.created_at ASC
     """, (post_id,)).fetchall()
+# --- START / GET GAME HELPERS ---
 
+
+def start_game(player1_id, player2_id, game_type='tictactoe'):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    if game_type == "tictactoe":
+
+        board_state = "---------"
+        current_turn = "X"
+
+        cursor.execute("""
+            INSERT INTO games_2
+            (game_type, player_x_id, player_o_id, board_state, current_turn, winner)
+            VALUES (?, ?, ?, ?, ?, NULL)
+        """, (
+            "tictactoe",
+            player1_id,
+            player2_id,
+            board_state,
+            current_turn
+        ))
+
+    elif game_type == "ludo":
+
+        import json
+
+        players = [player1_id, player2_id]
+
+        board_state = {
+            "players": players,
+            "positions": {
+                str(player1_id): [0, 0, 0, 0],
+                str(player2_id): [0, 0, 0, 0]
+            },
+            "dice": None,
+            "winner": None
+        }
+
+        cursor.execute("""
+            INSERT INTO games_2
+            (game_type, player_x_id, player_o_id, board_state, current_turn, winner)
+            VALUES (?, ?, ?, ?, ?, NULL)
+        """, (
+            "ludo",
+            player1_id,
+            player2_id,
+            json.dumps(board_state),
+            str(player1_id)  # turn = user_id
+        ))
+
+    else:
+        return None  # unsupported game type
+
+    conn.commit()
+    return cursor.lastrowid
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO games_2 (game_type, player_x_id, player_o_id, board_state, current_turn)
+        VALUES (?, ?, ?, ?, ?)
+    """, (game_type, player_x_id, player_o_id, '-'*9, 'X'))
+    conn.commit()
+    return cursor.lastrowid
+
+def get_game(game_id):
+    conn = get_db()
+    game = conn.execute(
+        "SELECT * FROM games_2 WHERE game_id=?",
+        (game_id,)
+    ).fetchone()
+
+    if not game:
+        return None
+
+    game = dict(game)
+
+    # If ludo, decode JSON board
+    if game["game_type"] == "ludo" and game["board_state"]:
+        import json
+        game["board_state"] = json.loads(game["board_state"])
+
+    return game
+
+def make_move(game_id, user_id, position):
+    game = get_game(game_id)
+    if not game:
+        return "Game not found"
+
+    if game['winner']:
+        return f"Game over! Winner: {game['winner']}"
+
+    # Determine user's symbol
+    symbol = 'X' if user_id == game['player_x_id'] else 'O'
+    if symbol != game['current_turn']:
+        return "Not your turn"
+
+    board = game['board_state']
+    if board[position] != '-':
+        return "Position taken"
+
+    board = board[:position] + symbol + board[position+1:]
+    
+    # Check for winner
+    combos = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]]
+    winner = None
+    for c in combos:
+        if board[c[0]] == board[c[1]] == board[c[2]] != '-':
+            winner = board[c[0]]
+            break
+    if '-' not in board and not winner:
+        winner = 'Draw'
+
+    next_turn = 'O' if game['current_turn'] == 'X' else 'X'
+
+    # Update DB
+    conn = get_db()
+    conn.execute("""
+        UPDATE games_2
+        SET board_state=?, current_turn=?, winner=?
+        WHERE game_id=?
+    """, (board, next_turn, winner, game_id))
+    conn.commit()
+
+    return None
+
+def start_game_ludo(lobby_id):
+    conn = get_db()
+
+    rows = conn.execute("""
+        SELECT user_id FROM lobby_players
+        WHERE lobby_id = ?
+        ORDER BY joined_at
+    """, (lobby_id,)).fetchall()
+
+    players = [row["user_id"] for row in rows]
+
+    if len(players) < 2:
+        return None
+
+    board_state = {
+        "players": players,
+        "positions": {
+            str(pid): [0, 0, 0, 0] for pid in players
+        },
+        "dice": None,
+        "winner": None
+    }
+
+    current_turn = str(players[0])
+
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO games_2
+        (game_type, player_x_id, player_o_id, board_state, current_turn, winner)
+        VALUES (?, ?, ?, ?, ?, NULL)
+    """, (
+        "ludo",
+        players[0],
+        players[1],  # placeholder for compatibility
+        json.dumps(board_state),
+        current_turn
+    ))
+
+    game_id = cursor.lastrowid
+    conn.commit()
+
+    return game_id
+
+def update_game_state(game_id, board_state, current_turn, winner=None):
+    conn = get_db()
+
+    import json
+
+    conn.execute("""
+        UPDATE games_2
+        SET board_state=?, current_turn=?, winner=?
+        WHERE game_id=?
+    """, (
+        json.dumps(board_state),
+        str(current_turn),
+        str(winner) if winner else None,
+        game_id
+    ))
+
+    conn.commit()
+
+def ludo_move(game_id, user_id, token_index):
+    game = get_game(game_id)
+    if not game:
+        return "Game not found"
+
+    board = game["board_state"]
+
+    if board["winner"]:
+        return "Game finished"
+
+    if str(game["current_turn"]) != str(user_id):
+        return "Not your turn"
+
+    if board["dice"] is None:
+        return "Roll dice first"
+
+    positions = board["positions"].get(str(user_id))
+    if not positions:
+        return "Invalid player"
+
+    if token_index < 0 or token_index > 3:
+        return "Invalid token"
+
+    dice = board["dice"]
+    positions[token_index] += dice
+
+    # Simple win rule
+    if positions[token_index] >= 57:
+        board["winner"] = user_id
+
+    board["dice"] = None
+
+    players = board["players"]
+    current_index = players.index(user_id)
+    next_index = (current_index + 1) % len(players)
+    next_turn = players[next_index]
+
+    update_game_state(game_id, board, next_turn, board["winner"])
+
+    return None
+
+def update_dice(game_id, dice):
+    game = get_game(game_id)
+    if not game:
+        return
+
+    board = game["board_state"]
+    board["dice"] = dice
+
+    update_game_state(
+        game_id,
+        board,
+        game["current_turn"],
+        board["winner"]
+    )
