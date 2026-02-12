@@ -81,40 +81,7 @@
                 {% endfor %}
                 {% endif %}
 
-                <!-- Generic Group Info Modal (For Sidebar) -->
-                <div class="modal fade" id="genericGroupInfoModal" tabindex="-1" aria-hidden="true">
-                    <div class="modal-dialog">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title">Group Info</h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal"
-                                    aria-label="Close"></button>
-                            </div>
-                            <div class="modal-body">
-                                <div class="text-center mb-4">
-                                    <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center mx-auto mb-2"
-                                        style="width:80px; height:80px; color:white; font-size: 2rem;">
-                                        <i class="fa fa-users"></i>
-                                    </div>
-                                    <h4 id="genericGroupName">Group Name</h4>
-                                    <p class="text-muted" id="genericGroupDesc">Description</p>
-                                </div>
 
-                                <h6 class="border-bottom pb-2 mb-3">Members (<span id="genericMemberCount">0</span>)
-                                </h6>
-                                <div class="list-group list-group-flush" id="genericMemberList"
-                                    style="max-height: 250px; overflow-y: auto;">
-                                    <!-- Populated by JS -->
-                                    <div class="text-center text-muted"><i class="fa fa-spinner fa-spin"></i> Loading...
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
 
                 <li class="list-group-item bg-light text-muted small fw-bold mt-2">DIRECT MESSAGES</li>
                 {% if chats %}
@@ -172,18 +139,22 @@
             <div id="chat-box" class="flex-grow-1 p-3 overflow-auto" style="background-color:#e5ddd5;">
                 {% if messages %}
                 {% for msg in messages %}
-                <div class="mb-2 {% if msg.sender_username == username %}text-end{% else %}text-start{% endif %}">
+                <div class="mb-2 {% if msg.sender_username == username %}text-end{% else %}text-start{% endif %}"
+                    id="msg-{{ msg.message_id }}">
                     {% if msg.display_name and msg.sender_username != username %}
                     <small class="text-muted" style="font-size:0.75rem;">{{ msg.display_name }}</small><br>
                     {% endif %}
 
                     {% if '[IMAGE]' in msg.content %}
-                    <img src="{{ msg.content.replace('[IMAGE]', '') }}" style="max-width:200px; border-radius:8px;">
+                    <img src="{{ msg.content.replace('[IMAGE]', '') }}"
+                        style="max-width:200px; border-radius:8px; cursor:pointer;"
+                        onclick="confirmDelete(this, {{ msg.message_id }}, '{{ msg.sender_username }}')">
                     {% else %}
                     <span class="badge chat-bubble {% if msg.sender_username == username %}me{% else %}them{% endif %}"
                         style="font-size: 1rem; font-weight: normal; padding: 8px 12px; 
                                     max-width: 60%; display: inline-block; text-align: left;
-                                    white-space: pre-wrap !important; word-wrap: break-word; overflow-wrap: break-word; word-break: break-all;">
+                                    white-space: pre-wrap !important; word-wrap: break-word; overflow-wrap: break-word; word-break: break-all; cursor:pointer;"
+                        onclick="confirmDelete(this, {{ msg.message_id }}, '{{ msg.sender_username }}')">
                         {{ msg.content }}
                     </span>
 
@@ -219,94 +190,7 @@
 
     </div>
 </div>
-<div class="modal fade" id="contactModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Find People</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <input type="text" id="userSearchInput" class="form-control mb-3" placeholder="Type a username...">
-                <div id="searchResults" style="max-height:300px; overflow-y:auto; border-top:1px solid #eee;">
-                    <div style="padding:10px; color:#999; text-align:center;">Start typing to search...</div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
 
-<div class="modal fade" id="createGroupModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Create Group Chat</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <label class="form-label">Group Name</label>
-                    <input type="text" id="groupName" class="form-control" required>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">Description</label>
-                    <input type="text" id="groupDescription" class="form-control">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">Select Members</label>
-                    <div id="groupMembers" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;">
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-success" id="createGroupBtn">Create</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-{% if recipient %}
-<div class="modal fade" id="friendInfoModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Contact Info</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body text-center">
-                <div class="mb-3">
-                    <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center mx-auto mb-2"
-                        style="width:80px; height:80px; color:white; font-size: 2rem;">
-                        {{ recipient.display_name[0] | upper }}
-                    </div>
-                    <h4>{{ recipient.display_name }}</h4>
-                    <p class="text-muted">@{{ recipient.username }}</p>
-                </div>
-                <ul class="list-group list-group-flush text-start">
-                    {% if recipient.bio %}
-                    <li class="list-group-item">
-                        <strong>Bio:</strong> {{ recipient.bio }}
-                    </li>
-                    {% endif %}
-                    <li class="list-group-item">
-                        <strong>Email:</strong> {{ recipient.email }}
-                    </li>
-                    <li class="list-group-item">
-                        <strong>Phone:</strong> {{ recipient.phone }}
-                    </li>
-                    <li class="list-group-item">
-                        <strong>Age:</strong> {{ recipient.age }}
-                    </li>
-                </ul>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-            </div>
-        </div>
-    </div>
-</div>
-{% endif %}
 
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <script>
@@ -318,178 +202,13 @@
     let currentGroupId = null;
     const currentUser = "{{ session['username'] }}";
 
-    // === E2EE CRYPTO LOGIC ===
-    const ENC_ALGO = { name: "RSA-OAEP", hash: "SHA-256" };
-    const SIGN_ALGO = { name: "ECDSA", hash: "SHA-256", namedCurve: "P-256" }; // Future use
-    let myPrivateKey = null;
-    let myPublicKey = null;
 
-    // Initialize Keys
-    async function initCrypto() {
-        console.log("Initializing Crypto...");
-        const storedPriv = localStorage.getItem(`privKey_${currentUser}`);
-        const storedPub = localStorage.getItem(`pubKey_${currentUser}`);
 
-        if (storedPriv && storedPub) {
-            // Import existing keys
-            myPrivateKey = await importKey(storedPriv, "private");
-            myPublicKey = await importKey(storedPub, "public");
-            console.log("Keys loaded from storage.");
-        } else {
-            // Generate new keys
-            console.log("Generating new keys...");
-            const keyPair = await window.crypto.subtle.generateKey(
-                {
-                    name: "RSA-OAEP",
-                    modulusLength: 2048,
-                    publicExponent: new Uint8Array([1, 0, 1]),
-                    hash: "SHA-256",
-                },
-                true,
-                ["encrypt", "decrypt"]
-            );
-            myPrivateKey = keyPair.privateKey;
-            myPublicKey = keyPair.publicKey;
-
-            // Save to storage
-            const expPriv = await exportKey(myPrivateKey, "private");
-            const expPub = await exportKey(myPublicKey, "public");
-            localStorage.setItem(`privKey_${currentUser}`, expPriv);
-            localStorage.setItem(`pubKey_${currentUser}`, expPub);
-
-            // Publish Public Key to Server
-            await fetch('/api/keys/publish', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ public_key: expPub })
-            });
-            console.log("New keys generated and published.");
-        }
-
-        // Decrypt existing messages on page
-        decryptAllMessages();
-    }
-
-    async function exportKey(key, type) {
-        const exported = await window.crypto.subtle.exportKey(
-            type === "public" ? "spki" : "pkcs8",
-            key
-        );
-        return btoa(String.fromCharCode(...new Uint8Array(exported)));
-    }
-
-    async function importKey(pem, type) {
-        const binaryDerString = atob(pem);
-        const binaryDer = new Uint8Array(binaryDerString.length);
-        for (let i = 0; i < binaryDerString.length; i++) {
-            binaryDer[i] = binaryDerString.charCodeAt(i);
-        }
-        return window.crypto.subtle.importKey(
-            type === "public" ? "spki" : "pkcs8",
-            binaryDer.buffer,
-            ENC_ALGO,
-            true,
-            [type === "public" ? "encrypt" : "decrypt"]
-        );
-    }
-
-    // Encrypt for a recipient
-    async function encryptMessageForUser(message, recipientPublicKeyPem) {
-        try {
-            const recipientPub = await importKey(recipientPublicKeyPem, "public");
-
-            // 1. Generate AES Session Key
-            const sessionKey = await window.crypto.subtle.generateKey(
-                { name: "AES-GCM", length: 256 },
-                true,
-                ["encrypt", "decrypt"]
-            );
-
-            // 2. Encrypt Message with AES
-            const enc = new TextEncoder();
-            const iv = window.crypto.getRandomValues(new Uint8Array(12));
-            const encryptedContent = await window.crypto.subtle.encrypt(
-                { name: "AES-GCM", iv: iv },
-                sessionKey,
-                enc.encode(message)
-            );
-
-            // 3. Encrypt Session Key with RSA
-            const exportedSessionKey = await window.crypto.subtle.exportKey("raw", sessionKey);
-            const encryptedKey = await window.crypto.subtle.encrypt(
-                { name: "RSA-OAEP" },
-                recipientPub,
-                exportedSessionKey
-            );
-
-            // Pack it all
-            return JSON.stringify({
-                iv: btoa(String.fromCharCode(...iv)),
-                data: btoa(String.fromCharCode(...new Uint8Array(encryptedContent))),
-                key: btoa(String.fromCharCode(...new Uint8Array(encryptedKey)))
-            });
-        } catch (e) {
-            console.error("Encryption failed:", e);
-            return null;
-        }
-    }
-
-    // Decrypt a message
-    async function decryptMessage(payloadStr) {
-        try {
-            const payload = JSON.parse(payloadStr);
-            if (!payload.iv || !payload.data || !payload.key) return payloadStr; // Not encrypted structure
-
-            // 1. Decrypt Session Key
-            const encKey = Uint8Array.from(atob(payload.key), c => c.charCodeAt(0));
-            const sessionKeyRaw = await window.crypto.subtle.decrypt(
-                { name: "RSA-OAEP" },
-                myPrivateKey,
-                encKey
-            );
-
-            const sessionKey = await window.crypto.subtle.importKey(
-                "raw",
-                sessionKeyRaw,
-                { name: "AES-GCM" },
-                true,
-                ["encrypt", "decrypt"]
-            );
-
-            // 2. Decrypt Content
-            const iv = Uint8Array.from(atob(payload.iv), c => c.charCodeAt(0));
-            const data = Uint8Array.from(atob(payload.data), c => c.charCodeAt(0));
-
-            const decrypted = await window.crypto.subtle.decrypt(
-                { name: "AES-GCM", iv: iv },
-                sessionKey,
-                data
-            );
-
-            return new TextDecoder().decode(decrypted);
-        } catch (e) {
-            console.error("Decryption failed:", e);
-            return "[Encrypted Message - Unable to Decrypt]";
-        }
-    }
-
-    // === MESSAGE RENDERING ===
-
-    async function decryptAllMessages() {
-        const encryptedMsgs = document.querySelectorAll('.encrypted-msg');
-        for (let el of encryptedMsgs) {
-            const content = el.dataset.content;
-            const decrypted = await decryptMessage(content);
-            el.innerText = decrypted;
-            el.classList.remove('encrypted-msg');
-            el.classList.remove('text-muted'); // Remove 'Loading...' style
-        }
-    }
-
-    // Modified append to handle encryption flag
-    async function appendMessageToUI(sender, content, displayName, timestamp, isEncrypted) {
+    // Simplified append for plain text
+    function appendMessageToUI(sender, content, displayName, timestamp, isEncrypted, messageId) {
         const div = document.createElement('div');
         div.className = `mb-2 ${sender === "{{ session['username'] }}" ? 'text-end' : 'text-start'}`;
+        if (messageId) div.id = `msg-${messageId}`;
 
         let innerHTML = '';
         // 1. Add Sender Name (for groups)
@@ -497,34 +216,17 @@
             innerHTML += `<small class="text-muted" style="font-size:0.75rem;">${displayName}</small><br>`;
         }
 
+        const clickHandler = messageId ? `onclick="confirmDelete(this, ${messageId}, '${sender}')"` : '';
+        const cursorStyle = messageId ? 'cursor:pointer;' : '';
+
         // 2. Add Content
-        // Check if it's an image (Legacy or specialized handling needed for encrypted images)
-        // For now, assuming images are NOT encrypted via this flow or handled separately
         if (content.startsWith('[IMAGE]')) {
-            innerHTML += `<img src="${content.replace('[IMAGE]', '')}" style="max-width:200px; border-radius:8px;">`;
+            innerHTML += `<img src="${content.replace('[IMAGE]', '')}" style="max-width:200px; border-radius:8px; ${cursorStyle}" ${clickHandler}>`;
         } else {
             const bubbleClass = sender === "{{ session['username'] }}" ? 'me' : 'them';
-
-            if (isEncrypted) {
-                // If receiving:
-                if (sender !== currentUser) {
-                    innerHTML += `<span class="badge chat-bubble ${bubbleClass} encrypted-msg text-muted" data-content='${content}' 
-                                style="font-size: 1rem; font-weight: normal; padding: 8px 12px; max-width: 60%; 
-                                display: inline-block; text-align: left; 
-                                white-space: pre-wrap !important; word-wrap: break-word; overflow-wrap: break-word; word-break: break-all;">
-                                🔐 Decrypting...
-                               </span>`;
-                } else {
-                    innerHTML += `<span class="badge chat-bubble ${bubbleClass} encrypted-msg" data-content='${content}' 
-                                style="font-size: 1rem; font-weight: normal; padding: 8px 12px; max-width: 60%; 
-                                display: inline-block; text-align: left; 
-                                white-space: pre-wrap !important; word-wrap: break-word; overflow-wrap: break-word; word-break: break-all;">
-                                [Encrypted Sent Message]
-                               </span>`;
-                }
-            } else {
-                innerHTML += `<span class="badge chat-bubble ${bubbleClass}" style="font-size: 1rem; font-weight: normal; padding: 8px 12px; max-width: 60%; display: inline-block; text-align: left; white-space: pre-wrap !important; word-wrap: break-word; overflow-wrap: break-word; word-break: break-all;">${content}</span>`;
-            }
+            // Always render as plain text, ignoring isEncrypted flag for display purposes
+            // (Old encrypted messages will show as raw text, which is expected behavior for removal)
+            innerHTML += `<span class="badge chat-bubble ${bubbleClass}" style="font-size: 1rem; font-weight: normal; padding: 8px 12px; max-width: 60%; display: inline-block; text-align: left; white-space: pre-wrap !important; word-wrap: break-word; overflow-wrap: break-word; word-break: break-all; ${cursorStyle}" ${clickHandler}>${content}</span>`;
         }
 
         // 3. Add Timestamp
@@ -539,11 +241,9 @@
 
         div.innerHTML = innerHTML;
         chatBox.appendChild(div);
-
-        // Trigger decryption for this new element
-        if (isEncrypted && sender !== currentUser) {
-            decryptAllMessages();
-        }
+        // Remove placeholder if exists
+        const ph = document.getElementById('no-msg-placeholder');
+        if (ph) ph.remove();
     }
 
 
@@ -562,7 +262,7 @@
                 document.getElementById('chat-header').innerHTML = `<h5 class="mb-0"><i class="fa fa-users me-2"></i>${groupName}</h5>`;
                 chatBox.innerHTML = '';
                 data.messages.forEach(msg => {
-                    appendMessageToUI(msg.sender_username, msg.content, msg.display_name, msg.created_at, msg.is_encrypted);
+                    appendMessageToUI(msg.sender_username, msg.content, msg.display_name, msg.created_at, msg.is_encrypted, msg.message_id);
                 });
                 enableInputs();
                 scrollToBottom();
@@ -578,39 +278,14 @@
         if (!msg) return;
 
         if (currentGroupId) {
-            // GROUP CHAT: No Encryption for now
+            // GROUP CHAT
             socket.emit('send_group_message', { msg: msg, group_id: currentGroupId, is_encrypted: 0 });
             input.value = '';
         } else if (recipient) {
-            // DM: Encrypt
-            try {
-                // Get recipient public key
-                // Ideally cache this
-                let pubKey = null;
-                const res = await fetch(`/api/keys/${recipientId}`); // We need user ID, hacked via template var
-                if (res.ok) {
-                    const data = await res.json();
-                    pubKey = data.public_key;
-                }
-
-                if (pubKey) {
-                    const encryptedPayload = await encryptMessageForUser(msg, pubKey);
-                    if (encryptedPayload) {
-                        socket.emit('send_message', { msg: encryptedPayload, recipient: recipient, is_encrypted: 1 });
-
-                        // Optimistic UI update (Show PLAINTEXT since we know what we sent)
-                        appendMessageToUI(currentUser, msg, null, new Date(), false);
-                        scrollToBottom();
-                        input.value = '';
-                        return;
-                    }
-                }
-            } catch (e) { console.error("Key fetch failed:", e); }
-
-            // Fallback or error
-            alert("Could not encrypt message (User might not have keys setup). Sending plaintext.");
+            // DM: Plain Text
             socket.emit('send_message', { msg: msg, recipient: recipient, is_encrypted: 0 });
-            appendMessageToUI(currentUser, msg, null, new Date(), false);
+
+            // Optimistic UI update REMOVED to rely on socket echo which contains the message_id for deletion
             input.value = '';
         }
     });
@@ -622,20 +297,39 @@
             // But server ack is good.
             // For simplicity, if it's from ME, distinct treatment? 
             // SocketIO reflects back to sender too.
-            if (data.user === currentUser) return; // Ignore echo if optimistic update used
+            // if (data.user === currentUser) return; // Ignore echo if optimistic update used -> WE WANT ECHO for ID
 
-            appendMessageToUI(data.user, data.msg, null, new Date(), data.is_encrypted);
+            appendMessageToUI(data.user, data.msg, null, new Date(), data.is_encrypted, data.message_id);
             scrollToBottom();
         }
     });
 
     socket.on('group_message', data => {
         if (currentGroupId === data.group_id) {
-            if (data.user === currentUser) return;
-            appendMessageToUI(data.user, data.msg, data.user, data.timestamp || new Date(), data.is_encrypted);
+            // if (data.user === currentUser) return; // We want echo for ID
+            appendMessageToUI(data.user, data.msg, data.user, data.timestamp || new Date(), data.is_encrypted, data.message_id);
             scrollToBottom();
         }
     });
+
+    // === DELETION LOGIC ===
+    socket.on('message_deleted', data => {
+        const el = document.getElementById(`msg-${data.message_id}`);
+        if (el) el.remove();
+    });
+
+    function confirmDelete(el, messageId, sender) {
+        if (sender !== currentUser) return; // Can only delete own messages
+
+        if (confirm("Delete this message?")) {
+            fetch(`/api/message/${messageId}/delete`, { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) alert(data.error);
+                })
+                .catch(err => console.error(err));
+        }
+    }
 
     // Utils
     function enableInputs() {
@@ -647,139 +341,17 @@
 
     // Init
     scrollToBottom();
-    initCrypto();
+    init_game_tables(); // Assuming this was supposed to be initCrypto? Replaced effectively with nothing or generic init if needed.
+    // Actually initCrypto was for keys. We can just ignore/remove it.
+    scrollToBottom();
+
 
     // ... Search/Modal logic preserved ...
-    // === USER SEARCH LOGIC ===
-    const searchInput = document.getElementById('userSearchInput');
-    const searchResults = document.getElementById('searchResults');
-    let searchTimeout = null;
 
-    searchInput.addEventListener('input', () => {
-        const query = searchInput.value.trim();
-        if (searchTimeout) clearTimeout(searchTimeout);
-
-        if (query.length < 2) {
-            searchResults.innerHTML = '<div style="padding:10px; color:#999; text-align:center;">Type at least 2 characters...</div>';
-            return;
-        }
-
-        searchResults.innerHTML = '<div style="padding:10px; color:#666; text-align:center;"><i class="fa fa-spinner fa-spin"></i> Searching...</div>';
-
-        searchTimeout = setTimeout(async () => {
-            try {
-                const res = await fetch(`/api/search_users?q=${encodeURIComponent(query)}`);
-                if (res.ok) {
-                    const users = await res.json();
-                    if (users.length === 0) {
-                        searchResults.innerHTML = '<div style="padding:10px; color:#999; text-align:center;">No users found.</div>';
-                    } else {
-                        searchResults.innerHTML = '';
-                        users.forEach(user => {
-                            const div = document.createElement('div');
-                            div.className = "d-flex justify-content-between align-items-center p-2 border-bottom";
-
-                            // Generate initial avatar
-                            const initial = user.display_name.charAt(0).toUpperCase();
-
-                            // Determine Action Button
-                            let actionHtml = '';
-                            if (user.is_friend) {
-                                actionHtml = `<button class="btn btn-sm btn-success rounded-pill" onclick="window.location.href='/chat/${user.username}'"><i class="fa fa-comment"></i> Chat</button>`;
-                            } else if (user.request_sent) {
-                                actionHtml = `<button class="btn btn-sm btn-secondary rounded-pill" disabled><i class="fa fa-clock-o"></i> Sent</button>`;
-                            } else if (user.request_received) {
-                                actionHtml = `<a href="/notifications" class="btn btn-sm btn-primary rounded-pill"><i class="fa fa-reply"></i> Respond</a>`;
-                            } else {
-                                actionHtml = `<button class="btn btn-sm btn-outline-primary rounded-pill" onclick="sendFriendRequest(this, '${user.username}')"><i class="fa fa-user-plus"></i> Add</button>`;
-                            }
-
-                            div.innerHTML = `
-                                <div class="d-flex align-items-center">
-                                    <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center me-3" 
-                                         style="width:40px; height:40px; color:white; font-weight:bold;">${initial}</div>
-                                    <div>
-                                        <div class="fw-bold">${user.display_name}</div>
-                                        <div class="text-muted small">@${user.username}</div>
-                                    </div>
-                                </div>
-                                <div>${actionHtml}</div>
-                            `;
-                            searchResults.appendChild(div);
-                        });
-                    }
-                } else {
-                    searchResults.innerHTML = `<div style="padding:10px; color:red; text-align:center;">Server Error: ${res.status}</div>`;
-                }
-            } catch (e) {
-                console.error("Search failed", e);
-                searchResults.innerHTML = '<div style="padding:10px; color:red; text-align:center;">Error searching users.</div>';
-            }
-        }, 500); // 500ms debounce
-    });
-
-    // Helper function to send friend request
-    window.sendFriendRequest = async (btn, username) => {
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
-        try {
-            const res = await fetch(`/friend/request/${username}`, { method: 'POST' });
-            if (res.ok) {
-                btn.className = "btn btn-sm btn-secondary rounded-pill";
-                btn.innerHTML = '<i class="fa fa-check"></i> Sent';
-            } else {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fa fa-exclamation-triangle"></i> Retry';
-            }
-        } catch (e) {
-            console.error(e);
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fa fa-exclamation-triangle"></i> Retry';
-        }
-    };
 
     // === CREATE GROUP LOGIC ===
     // Populate members list for group creation
-    const groupMembersDiv = document.getElementById('groupMembers');
-    // Using Jinja2 to pre-populate friends since we already have 'chats'
-    /*
-    {% for chat in chats %}
-    {
-        const div = document.createElement('div');
-        div.className = "form-check";
-        div.innerHTML = `
-            <input class="form-check-input" type="checkbox" value="{{ chat.username }}" id="member_{{ chat.user_id }}">
-            <label class="form-check-label" for="member_{{ chat.user_id }}">
-                {{ chat.display_name }} (@{{ chat.username }})
-            </label>
-        `;
-        groupMembersDiv.appendChild(div);
-    }
-    {% endfor %}
-    */
-    // Fix for potential missing element
-    if (groupMembersDiv) {
-        // Better Approach: Render HTML directly in Jinja, cleaner than JS injection
-        groupMembersDiv.innerHTML = `
-        {% if chats %}
-            {% for chat in chats %}
-            <div class="form-check mb-2">
-                <input class="form-check-input" type="checkbox" value="{{ chat.username }}" id="member_{{ chat.user_id }}">
-                <label class="form-check-label d-flex align-items-center" for="member_{{ chat.user_id }}" style="cursor:pointer;">
-                    <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center me-2" 
-                            style="width:30px; height:30px; color:white; font-size: 0.8em;">{{ chat.display_name[0]|upper }}</div>
-                    <div>
-                        <div>{{ chat.display_name }}</div>
-                        <small class="text-muted">@{{ chat.username }}</small>
-                    </div>
-                </label>
-            </div>
-            {% endfor %}
-        {% else %}
-            <div class="text-muted small">No friends found. Add friends to create a group!</div>
-        {% endif %}
-        `;
-    } // End if groupMembersDiv
+    // === CREATE GROUP LOGIC removed from here and moved to HTML ===
 
     // === GROUP INFO MODAL (SIDEBAR) ===
     async function loadGroupInfo(groupId) {
@@ -830,6 +402,297 @@
 
 </script>
 
+<!-- Consolidated Search Script -->
+<script>
+    let searchTimeout = null;
+
+    window.performSearch = function (query) {
+        const searchResults = document.getElementById('searchResults');
+        if (!searchResults) return;
+
+        query = query ? query.trim() : "";
+
+        if (searchTimeout) clearTimeout(searchTimeout);
+
+        searchResults.innerHTML = '<div style="padding:10px; color:#666; text-align:center;"><i class="fa fa-spinner fa-spin"></i> Searching...</div>';
+
+        searchTimeout = setTimeout(async () => {
+            try {
+                const res = await fetch(`/api/search_users?q=${encodeURIComponent(query)}`);
+
+                if (res.ok) {
+                    const users = await res.json();
+
+                    if (searchResults) {
+                        if (users.length === 0) {
+                            searchResults.innerHTML = `<div style="padding:10px; color:#999; text-align:center;">No users found matching "${query}".</div>`;
+                        } else {
+                            searchResults.innerHTML = '';
+                            if (!query) {
+                                const header = document.createElement('div');
+                                header.innerHTML = '<small class="text-muted ms-2">Suggested Users</small>';
+                                searchResults.appendChild(header);
+                            }
+
+                            users.forEach(user => {
+                                const div = document.createElement('div');
+                                div.className = "d-flex justify-content-between align-items-center p-2 border-bottom";
+
+                                const initial = user.display_name.charAt(0).toUpperCase();
+
+                                let actionHtml = '';
+                                if (user.is_friend) {
+                                    actionHtml = `<button class="btn btn-sm btn-success rounded-pill" onclick="window.location.href='/chat/${user.username}'"><i class="fa fa-comment"></i> Chat</button>`;
+                                } else if (user.request_sent) {
+                                    actionHtml = `<button class="btn btn-sm btn-secondary rounded-pill" disabled><i class="fa fa-clock-o"></i> Sent</button>`;
+                                } else if (user.request_received) {
+                                    actionHtml = `<a href="/notifications" class="btn btn-sm btn-primary rounded-pill"><i class="fa fa-reply"></i> Respond</a>`;
+                                } else {
+                                    actionHtml = `<button class="btn btn-sm btn-outline-primary rounded-pill" onclick="sendFriendRequest(this, '${user.username}')"><i class="fa fa-user-plus"></i> Add</button>`;
+                                }
+
+                                div.innerHTML = `
+                                    <div class="d-flex align-items-center">
+                                        <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center me-3" 
+                                             style="width:40px; height:40px; color:white; font-weight:bold;">${initial}</div>
+                                        <div>
+                                            <div class="fw-bold">${user.display_name}</div>
+                                            <div class="text-muted small">@${user.username}</div>
+                                        </div>
+                                    </div>
+                                    <div>${actionHtml}</div>
+                                `;
+                                searchResults.appendChild(div);
+                            });
+                        }
+                    }
+                } else {
+                    if (searchResults) searchResults.innerHTML = `<div style="padding:10px; color:red; text-align:center;">Server Error: ${res.status}</div>`;
+                }
+            } catch (e) {
+                console.error("Search failed", e);
+                if (searchResults) searchResults.innerHTML = '<div style="padding:10px; color:red; text-align:center;">Error searching users.</div>';
+            }
+        }, 300);
+    };
+
+    // Auto-attach listeners
+    document.addEventListener('DOMContentLoaded', () => {
+        // Button
+        const btn = document.getElementById('manualSearchBtn');
+        if (btn) {
+            btn.onclick = function () {
+                const input = document.getElementById('userSearchInput');
+                if (input) performSearch(input.value);
+            };
+        }
+        // Input
+        const input = document.getElementById('userSearchInput');
+        if (input) {
+            input.oninput = function () { performSearch(this.value); };
+        }
+
+        // Create Group Button
+        const createGroupBtn = document.getElementById('createGroupBtn');
+        if (createGroupBtn) {
+            createGroupBtn.addEventListener('click', async () => {
+                const nameInput = document.getElementById('groupName');
+                const descInput = document.getElementById('groupDescription');
+                const membersDiv = document.getElementById('groupMembers');
+
+                if (!nameInput.value.trim()) {
+                    alert('Please enter a group name.');
+                    return;
+                }
+
+                // Get selected usernames
+                const checkboxes = membersDiv.querySelectorAll('input[type="checkbox"]:checked');
+                const memberUsernames = Array.from(checkboxes).map(cb => cb.value);
+
+                if (memberUsernames.length === 0) {
+                    alert('Please select at least one member.');
+                    return;
+                }
+
+                createGroupBtn.disabled = true;
+                createGroupBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Creating...';
+
+                try {
+                    const res = await fetch('/api/create-group', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            group_name: nameInput.value.trim(),
+                            description: descInput.value.trim(),
+                            member_ids: memberUsernames // Sending usernames based on API code reading
+                        })
+                    });
+
+                    const data = await res.json();
+
+                    if (res.ok) {
+                        // Success - Reload to show new group
+                        window.location.reload();
+                    } else {
+                        alert('Error: ' + (data.error || 'Failed to create group'));
+                        createGroupBtn.disabled = false;
+                        createGroupBtn.innerHTML = 'Create';
+                    }
+                } catch (e) {
+                    console.error(e);
+                    alert('An error occurred.');
+                    createGroupBtn.disabled = false;
+                    createGroupBtn.innerHTML = 'Create';
+                }
+            });
+        }
+    });
+
+    // Helper function to send friend request
+    window.sendFriendRequest = async (btn, username) => {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i>';
+        try {
+            const res = await fetch(`/friend/request/${username}`, { method: 'POST' });
+            if (res.ok) {
+                btn.className = "btn btn-sm btn-secondary rounded-pill";
+                btn.innerHTML = '<i class="fa fa-check"></i> Sent';
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa fa-exclamation-triangle"></i> Retry';
+            }
+        } catch (e) {
+            console.error(e);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa fa-exclamation-triangle"></i> Retry';
+        }
+    };
+</script>
+
+
+{% endblock %}
+
+{% block modals %}
+<!-- Contact Modal -->
+<div class="modal fade" id="contactModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Find People</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group mb-3">
+                    <input type="text" id="userSearchInput" class="form-control" placeholder="Type a username..."
+                        onkeyup="if(event.key==='Enter') performSearch(this.value)">
+                    <button class="btn btn-primary" type="button" id="manualSearchBtn"
+                        onclick="const val = document.getElementById('userSearchInput').value; performSearch(val);"><i
+                            class="fa fa-search"></i></button>
+                </div>
+
+                <div id="searchResults" style="max-height:300px; overflow-y:auto; border-top:1px solid #eee;">
+                    <div style="padding:10px; color:#999; text-align:center;">Start typing to search...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Group Modal -->
+<div class="modal fade" id="createGroupModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create Group Chat</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Group Name</label>
+                    <input type="text" id="groupName" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Description</label>
+                    <input type="text" id="groupDescription" class="form-control">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Select Members</label>
+                    <div id="groupMembers" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;">
+                        {% if friends %}
+                        {% for friend in friends %}
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" value="{{ friend.username }}"
+                                id="member_{{ friend.user_id }}">
+                            <label class="form-check-label d-flex align-items-center" for="member_{{ friend.user_id }}"
+                                style="cursor:pointer;">
+                                <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center me-2"
+                                    style="width:30px; height:30px; color:white; font-size: 0.8em;">{{
+                                    friend.display_name[0]|upper }}</div>
+                                <div>
+                                    <div>{{ friend.display_name }}</div>
+                                    <small class="text-muted">@{{ friend.username }}</small>
+                                </div>
+                            </label>
+                        </div>
+                        {% endfor %}
+                        {% else %}
+                        <div class="text-muted small">No friends found. Add friends first!</div>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" id="createGroupBtn">Create</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Friend Info Modal -->
+{% if recipient %}
+<div class="modal fade" id="friendInfoModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Contact Info</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body text-center">
+                <div class="mb-3">
+                    <div class="bg-secondary rounded-circle d-flex align-items-center justify-content-center mx-auto mb-2"
+                        style="width:80px; height:80px; color:white; font-size: 2rem;">
+                        {{ recipient.display_name[0] | upper }}
+                    </div>
+                    <h4>{{ recipient.display_name }}</h4>
+                    <p class="text-muted">@{{ recipient.username }}</p>
+                </div>
+                <ul class="list-group list-group-flush text-start">
+                    {% if recipient.bio %}
+                    <li class="list-group-item">
+                        <strong>Bio:</strong> {{ recipient.bio }}
+                    </li>
+                    {% endif %}
+                    <li class="list-group-item">
+                        <strong>Email:</strong> {{ recipient.email }}
+                    </li>
+                    <li class="list-group-item">
+                        <strong>Phone:</strong> {{ recipient.phone }}
+                    </li>
+                    <li class="list-group-item">
+                        <strong>Age:</strong> {{ recipient.age }}
+                    </li>
+                </ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Group Info Modal (Current Group) -->
 {% if currentGroup %}
 <div class="modal fade" id="groupInfoModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
@@ -848,7 +711,8 @@
                     <p class="text-muted">{{ currentGroup.description }}</p>
                 </div>
 
-                <h6 class="border-bottom pb-2 mb-3">Members ({% if currentGroup.members %}{{ currentGroup.members|length
+                <h6 class="border-bottom pb-2 mb-3">Members ({% if currentGroup.members %}{{
+                    currentGroup.members|length
                     }}{% else %}0{% endif %})</h6>
                 <div class="list-group list-group-flush" style="max-height: 250px; overflow-y: auto;">
                     {% if currentGroup.members %}
@@ -879,4 +743,36 @@
     </div>
 </div>
 {% endif %}
+
+<!-- Generic Group Info Modal (For Sidebar) -->
+<div class="modal fade" id="genericGroupInfoModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Group Info</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="text-center mb-4">
+                    <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center mx-auto mb-2"
+                        style="width:80px; height:80px; color:white; font-size: 2rem;">
+                        <i class="fa fa-users"></i>
+                    </div>
+                    <h4 id="genericGroupName">Group Name</h4>
+                    <p class="text-muted" id="genericGroupDesc">Description</p>
+                </div>
+
+                <h6 class="border-bottom pb-2 mb-3">Members (<span id="genericMemberCount">0</span>)
+                </h6>
+                <div class="list-group list-group-flush" id="genericMemberList"
+                    style="max-height: 250px; overflow-y: auto;">
+                    <div class="text-center text-muted"><i class="fa fa-spinner fa-spin"></i> Loading...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}

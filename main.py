@@ -797,7 +797,7 @@ def chat(username):
 
         # Fetch Group Messages
         messages = conn.execute("""
-            SELECT m.content, m.created_at, u.username AS sender_username, COALESCE(p.display_name, u.username) as display_name
+            SELECT m.message_id, m.content, m.created_at, u.username AS sender_username, COALESCE(p.display_name, u.username) as display_name
             FROM group_messages m
             JOIN users u ON m.sender_id = u.user_id
             LEFT JOIN user_profiles p ON u.user_id = p.user_id
@@ -835,16 +835,8 @@ def chat(username):
         """, (current_user_id, other_user['user_id'], other_user['user_id'], current_user_id)).fetchone()
 
         if not friendship or friendship['status'] != 'accepted':
-            # CHECK FOR EXISTING MESSAGES (Allow if they have history)
-            history_exists = conn.execute("""
-                SELECT 1 FROM messages 
-                WHERE (sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?)
-                LIMIT 1
-            """, (current_user_id, other_user['user_id'], other_user['user_id'], current_user_id)).fetchone()
-
-            if not history_exists:
-                flash("You need to be friends to chat!", "warning")
-                return redirect(url_for('notifications_page'))
+            flash("You need to be friends to chat!", "warning")
+            return redirect(url_for('notifications_page'))
 
         # New Message (DM)
         if request.method == 'POST':
@@ -859,7 +851,7 @@ def chat(username):
 
         # Fetch DM Messages
         messages = conn.execute("""
-            SELECT m.content, m.created_at, u.username AS sender_username, m.is_encrypted, COALESCE(p.display_name, u.username) as display_name
+            SELECT m.message_id, m.content, m.created_at, u.username AS sender_username, m.is_encrypted, COALESCE(p.display_name, u.username) as display_name
             FROM messages m
             JOIN users u ON m.sender_id = u.user_id
             LEFT JOIN user_profiles p ON u.user_id=p.user_id
@@ -869,6 +861,9 @@ def chat(username):
 
     # Common Context
     chats_list = get_user_chats(current_user_id)
+    # Get friends for group creation
+    friends = get_friends(current_user_id)
+    
     groups_query = conn.execute("""
         SELECT g.group_id, g.name, g.description,
                (SELECT content FROM group_messages WHERE group_id = g.group_id ORDER BY created_at DESC LIMIT 1) as last_message
@@ -884,6 +879,7 @@ def chat(username):
         recipient=other_user,
         chats=chats_list,
         groups=groups_query,
+        friends=friends, # Pass friends list
         current_chat=other_user,
         currentGroup=current_group
     )
@@ -920,14 +916,14 @@ def handle_message(data):
         return
     recipient_id = recipient_row['user_id']
 
-    conn.execute("INSERT INTO messages (sender_id, recipient_id, content, is_encrypted) VALUES (?, ?, ?, ?)",
+    cursor = conn.execute("INSERT INTO messages (sender_id, recipient_id, content, is_encrypted) VALUES (?, ?, ?, ?)",
                  (sender_id, recipient_id, msg, is_encrypted))
-    
     conn.commit()
+    message_id = cursor.lastrowid
 
     # real time text
     recipient_sid = online_users.get(recipient_username)
-    payload = {'user': sender_username, 'msg': msg, 'is_encrypted': is_encrypted}
+    payload = {'user': sender_username, 'msg': msg, 'is_encrypted': is_encrypted, 'message_id': message_id}
     if recipient_sid:
         emit('message', payload, room=recipient_sid)
     emit('message', payload, room=request.sid) 
@@ -946,11 +942,12 @@ def handle_group_message(data):
     sender_id = conn.execute("SELECT user_id FROM users WHERE username = ?", (sender_username,)).fetchone()['user_id']
     
     # Insert message
-    conn.execute(
+    cursor = conn.execute(
         "INSERT INTO group_messages (group_id, sender_id, content, is_encrypted) VALUES (?, ?, ?, ?)",
         (group_id, sender_id, msg, is_encrypted)
     )
     conn.commit()
+    message_id = cursor.lastrowid
     
     # Broadcast to all group members
     emit('group_message', {
@@ -958,7 +955,8 @@ def handle_group_message(data):
         'msg': msg,
         'group_id': group_id,
         'is_encrypted': is_encrypted,
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'message_id': message_id
     }, room=f'group_{group_id}')
 
 @socketio.on('join_group')
@@ -1205,13 +1203,17 @@ def my_messages():
         current_chat = None
         messages = []
 
+    # Get friends for group creation
+    friends = get_friends(current_user_id)
+
     return render_template(
         'chat_private.html',
         messages=messages,
         chats=chats,
-        groups=groups_query, # Pass groups
+        groups=groups_query,
+        friends=friends, # Pass friends list
         current_chat=current_chat,
-        recipient=current_chat  # Remmeber  this
+        recipient=current_chat 
     )
 
 @app.route('/api/all-users', methods=['GET'])
@@ -1468,7 +1470,7 @@ def get_group_messages(group_id):
         return {'error': 'Not a member of this group'}, 403
     
     messages = conn.execute("""
-        SELECT gm.content, gm.created_at, u.username AS sender_username, p.display_name
+        SELECT gm.message_id, gm.content, gm.created_at, u.username AS sender_username, p.display_name
         FROM group_messages gm
         JOIN users u ON gm.sender_id = u.user_id
         JOIN user_profiles p ON u.user_id = p.user_id
@@ -1490,7 +1492,7 @@ def get_group_messages(group_id):
     
     return {
         'group': {'group_id': group['group_id'], 'name': group['name'], 'description': group['description']},
-        'messages': [{'content': m['content'], 'sender_username': m['sender_username'], 'display_name': m['display_name'], 'created_at': m['created_at']} for m in messages],
+        'messages': [{'message_id': m['message_id'], 'content': m['content'], 'sender_username': m['sender_username'], 'display_name': m['display_name'], 'created_at': m['created_at']} for m in messages],
         'members': [{'user_id': m['user_id'], 'username': m['username'], 'display_name': m['display_name']} for m in members]
     }
 
@@ -1564,6 +1566,60 @@ def api_add_contact():
         return {'success': True, 'message': f'Added {contact_username} to contacts'}
     except Exception as e:
         return {'error': str(e)}, 400
+
+@app.route('/api/message/<int:message_id>/delete', methods=['POST'])
+def delete_message(message_id):
+    """Delete a message"""
+    if 'username' not in session:
+        return {'error': 'Not logged in'}, 401
+    
+    conn = get_db()
+    current_user_id = conn.execute(
+        "SELECT user_id FROM users WHERE username = ?", (session['username'],)
+    ).fetchone()['user_id']
+    
+    # Check DM messages
+    msg = conn.execute("SELECT * FROM messages WHERE message_id = ?", (message_id,)).fetchone()
+    group_msg = None
+    
+    if not msg:
+        # Check Group messages
+        group_msg = conn.execute("SELECT * FROM group_messages WHERE message_id = ?", (message_id,)).fetchone()
+        if not group_msg:
+            return {'error': 'Message not found'}, 404
+        
+        if group_msg['sender_id'] != current_user_id:
+             return {'error': 'Unauthorized'}, 403
+             
+        # Delete group message
+        conn.execute("DELETE FROM group_messages WHERE message_id = ?", (message_id,))
+        conn.commit()
+        
+        # Broadcast deletion
+        socketio.emit('message_deleted', {'message_id': message_id, 'group_id': group_msg['group_id']}, room=f"group_{group_msg['group_id']}")
+        
+    else:
+        if msg['sender_id'] != current_user_id:
+            return {'error': 'Unauthorized'}, 403
+            
+        # Delete DM
+        conn.execute("DELETE FROM messages WHERE message_id = ?", (message_id,))
+        conn.commit()
+        
+        # Notify recipient (find their SID)
+        recipient = conn.execute("SELECT username FROM users WHERE user_id = ?", (msg['recipient_id'],)).fetchone()
+        if recipient:
+            recipient_username = recipient['username']
+            recipient_sid = online_users.get(recipient_username)
+            if recipient_sid:
+                 socketio.emit('message_deleted', {'message_id': message_id}, room=recipient_sid)
+        
+        # Notify sender (current user) too, via socket for consistency if they have multiple tabs
+        sender_sid = online_users.get(session['username'])
+        if sender_sid:
+            socketio.emit('message_deleted', {'message_id': message_id}, room=sender_sid)
+
+    return {'success': True}
 
 # Explore page - show all communities except the ones user is already in
 
@@ -2307,22 +2363,33 @@ def api_search_users():
         return jsonify([]), 401
     
     query = request.args.get('q', '').strip()
-    if not query or len(query) < 2:
-        return jsonify([])
-    
     conn = get_db()
     current_uid = conn.execute("SELECT user_id FROM users WHERE username = ?", (session['username'],)).fetchone()['user_id']
     
-    cursor = conn.execute("""
-        SELECT u.username, COALESCE(up.display_name, u.username) as display_name,
-               (SELECT status FROM friends f WHERE (f.requester_id = ? AND f.addressee_id = u.user_id) OR (f.requester_id = u.user_id AND f.addressee_id = ?) ) as friend_status,
-               (SELECT requester_id FROM friends f WHERE (f.requester_id = ? AND f.addressee_id = u.user_id) OR (f.requester_id = u.user_id AND f.addressee_id = ?) ) as last_requester_id
-        FROM users u
-        LEFT JOIN user_profiles up ON u.user_id = up.user_id
-        WHERE (u.username LIKE ? OR COALESCE(up.display_name, u.username) LIKE ?)
-        AND u.username != ?
-        LIMIT 10
-    """, (current_uid, current_uid, current_uid, current_uid, f'%{query}%', f'%{query}%', session['username']))
+    if not query:
+        # Return random suggested users if no query
+        cursor = conn.execute("""
+            SELECT u.username, COALESCE(up.display_name, u.username) as display_name,
+                   (SELECT status FROM friends f WHERE (f.requester_id = ? AND f.addressee_id = u.user_id) OR (f.requester_id = u.user_id AND f.addressee_id = ?) ) as friend_status,
+                   (SELECT requester_id FROM friends f WHERE (f.requester_id = ? AND f.addressee_id = u.user_id) OR (f.requester_id = u.user_id AND f.addressee_id = ?) ) as last_requester_id
+            FROM users u
+            LEFT JOIN user_profiles up ON u.user_id = up.user_id
+            WHERE u.username != ?
+            ORDER BY RANDOM()
+            LIMIT 10
+        """, (current_uid, current_uid, current_uid, current_uid, session['username']))
+    else:
+        # Search by username or display name
+        cursor = conn.execute("""
+            SELECT u.username, COALESCE(up.display_name, u.username) as display_name,
+                   (SELECT status FROM friends f WHERE (f.requester_id = ? AND f.addressee_id = u.user_id) OR (f.requester_id = u.user_id AND f.addressee_id = ?) ) as friend_status,
+                   (SELECT requester_id FROM friends f WHERE (f.requester_id = ? AND f.addressee_id = u.user_id) OR (f.requester_id = u.user_id AND f.addressee_id = ?) ) as last_requester_id
+            FROM users u
+            LEFT JOIN user_profiles up ON u.user_id = up.user_id
+            WHERE (u.username LIKE ? OR COALESCE(up.display_name, u.username) LIKE ?)
+            AND u.username != ?
+            LIMIT 10
+        """, (current_uid, current_uid, current_uid, current_uid, f'%{query}%', f'%{query}%', session['username']))
     
     users = []
     for row in cursor.fetchall():
