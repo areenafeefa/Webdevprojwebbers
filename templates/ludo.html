@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="container py-4">
+    <h2 class="mb-4 fw-semibold">Ludo</h2>
+    <div class="mb-2">
+        <button class="btn btn-primary me-2" id="rollDiceBtn">Roll Dice</button>
+        <span>Dice: <span id="diceValue">-</span></span>
+        <span class="ms-4" id="turnIndicator"></span>
+    </div>
+    <div id="ludoBoard" style="position:relative;width:600px;height:600px;"></div>
+</div>
+
+<script src="//cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+    const socket = io();
+
+const userId = {{ session['user_id'] }};
+const gameId = {{ game_id }};
+let boardState = {};
+let players = [];
+const colors = ["red","green","yellow","blue"];
+
+const boardDiv = document.getElementById('ludoBoard');
+const turnIndicator = document.getElementById('turnIndicator');
+const diceValueSpan = document.getElementById('diceValue');
+
+const cellSize = boardDiv.clientWidth / 15;
+const pathLength = 57;
+
+// ------------------ CROSS PATH ------------------
+// 1D path per player, 0 = home
+const paths = {
+    0: [/* red path positions as [row,col] */],
+    1: [/* green path positions */],
+    2: [/* yellow path positions */],
+    3: [/* blue path positions */]
+};
+
+// Fill actual positions for all 4 players
+function fillPaths(){
+    // Red main path
+    const r=[[0,6],[1,6],[2,6],[3,6],[4,6],[5,6],[6,5],[6,4],[6,3],[6,2],[6,1],[6,0],[7,0],[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,6],[9,6],[10,6],[11,6],[12,6],[13,6],[14,6]];
+    paths[0] = r;
+    paths[1] = r.map(([x,y])=>[y,14-x]); // rotate green
+    paths[2] = r.map(([x,y])=>[14-x,14-y]); // yellow
+    paths[3] = r.map(([x,y])=>[14-y,x]); // blue
+}
+fillPaths();
+
+// ------------------ BOARD ------------------
+function createBoard(){
+    boardDiv.innerHTML='';
+    for(let row=0;row<15;row++){
+        for(let col=0;col<15;col++){
+            const cell=document.createElement('div');
+            cell.style.position='absolute';
+            cell.style.width=cellSize+'px';
+            cell.style.height=cellSize+'px';
+            cell.style.top=row*cellSize+'px';
+            cell.style.left=col*cellSize+'px';
+            cell.style.border='1px solid #ccc';
+            // Home corners
+            if(row<6 && col<6) cell.style.background='lightcoral';
+            else if(row<6 && col>8) cell.style.background='lightgreen';
+            else if(row>8 && col<6) cell.style.background='khaki';
+            else if(row>8 && col>8) cell.style.background='lightblue';
+            boardDiv.appendChild(cell);
+        }
+    }
+}
+
+// ------------------ RENDER TOKENS ------------------
+function renderTokens(){
+    document.querySelectorAll('.token').forEach(t=>t.remove());
+    if(!boardState.positions) return;
+    players.forEach((pid,index)=>{
+        const playerPositions = boardState.positions[pid.toString()];
+        playerPositions.forEach((pos,tokenIndex)=>{
+            const token=document.createElement('div');
+            token.className='token';
+            token.style.position='absolute';
+            token.style.width=cellSize*0.7+'px';
+            token.style.height=cellSize*0.7+'px';
+            token.style.borderRadius='50%';
+            token.style.background=colors[index];
+            token.dataset.playerId=pid;
+            token.dataset.tokenIndex=tokenIndex;
+
+            let row=0,col=0;
+            if(pos===0){
+                // Stack in home corner
+                row=(index<2?0:9)+Math.floor(tokenIndex/2);
+                col=(index%2===0?0:9)+(tokenIndex%2);
+            } else {
+                [row,col] = paths[index][pos-1];
+            }
+
+            token.style.top=row*cellSize+'px';
+            token.style.left=col*cellSize+'px';
+
+            token.addEventListener('click',()=>{
+                socket.emit('move_token',{game_id:gameId, token_index:tokenIndex});
+            });
+
+            boardDiv.appendChild(token);
+        });
+    });
+}
+
+// ------------------ SOCKET.IO ------------------
+socket.emit('join_ludo_game',{game_id:gameId});
+
+socket.on('ludo_update',data=>{
+    boardState=data.board_state;
+    players=boardState.players;
+    renderTokens();
+    turnIndicator.innerText = (boardState.current_turn==userId)?'Your Turn':`Player ${boardState.current_turn}`;
+    if(boardState.winner) alert(`Winner: Player ${boardState.winner}`);
+});
+
+document.getElementById('rollDiceBtn').addEventListener('click',()=>{
+    socket.emit('roll_dice',{game_id:gameId});
+});
+
+socket.on('dice_rolled',data=>{
+    diceValueSpan.innerText=data.dice;
+});
+
+// ------------------ INIT ------------------
+createBoard();
+
+</script>
+{% endblock %}
