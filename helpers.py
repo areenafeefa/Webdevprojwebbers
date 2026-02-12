@@ -526,6 +526,21 @@ def get_friend_requests(user_id):
     """, (user_id,)).fetchall()
     return [dict(r) for r in requests]
 
+def get_friends(user_id):
+    conn = get_db()
+    friends = conn.execute("""
+        SELECT u.user_id, u.username, COALESCE(p.display_name, u.username) as display_name
+        FROM users u
+        LEFT JOIN user_profiles p ON u.user_id = p.user_id
+        WHERE u.user_id IN (
+            SELECT requester_id FROM friends WHERE addressee_id = ? AND status='accepted'
+            UNION
+            SELECT addressee_id FROM friends WHERE requester_id = ? AND status='accepted'
+        )
+        ORDER BY display_name ASC
+    """, (user_id, user_id)).fetchall()
+    return [dict(f) for f in friends]
+
 def is_friend(user_id, other_id):
     conn = get_db()
     exists = conn.execute("""
@@ -558,22 +573,15 @@ def get_user_chats(user_id):
                ) AS last_message_time
         FROM users u
         LEFT JOIN user_profiles p ON u.user_id = p.user_id
+
         WHERE u.user_id IN (
-            -- Users from message history
-            SELECT sender_id FROM messages WHERE recipient_id = ?
-            UNION
-            SELECT recipient_id FROM messages WHERE sender_id = ?
-            UNION
-            -- Users from friends (accepted)
+            -- STRICT MODE: Only Accepted Friends
             SELECT requester_id FROM friends WHERE addressee_id = ? AND status='accepted'
             UNION
             SELECT addressee_id FROM friends WHERE requester_id = ? AND status='accepted'
-            UNION
-            -- Users from contacts table (legacy support)
-            SELECT contact_user_id FROM contacts WHERE user_id = ?
         )
         ORDER BY last_message_time DESC NULLS LAST, display_name ASC
-    """, (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id)).fetchall()
+    """, (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id)).fetchall()
 
     chats = []
     for row in chats_query:
