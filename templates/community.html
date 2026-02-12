@@ -15,16 +15,25 @@
             <a href="{{ url_for('create_post')}}" class="fa fa-plus d-flex m-3 text-decoration-none text-dark"></a>
         </div>
         </div>
-        <p class="text-muted mt-2">{{ community['description'] }}</p>
-{% if not is_member %}
-<form action="{{ url_for('join_community', community_id=community['community_id']) }}" method="post" style="display:inline;">
-    <button type="submit" class="btn btn-primary">Join Community</button>
-</form>
-{% else %}
-<form action="{{ url_for('leave_community', community_id=community['community_id']) }}" method="post" style="display:inline;">
-    <button type="submit" class="btn btn-danger">Leave Community</button>
-</form>
-{% endif %}
+<div class="col-12 d-flex justify-content-between align-items-start">
+    <p class="text-muted mt-2 mb-0">
+        {{ community['description'] }}
+    </p>
+
+    {% if not is_member %}
+    <form action="{{ url_for('join_community', community_id=community['community_id']) }}" method="post">
+        <button type="submit" class="btn btn-outline-primary">
+            Join
+        </button>
+    </form>
+    {% else %}
+    <form action="{{ url_for('leave_community', community_id=community['community_id']) }}" method="post">
+        <button type="submit" class="btn btn-outline-primary">
+            Leave
+        </button>
+    </form>
+    {% endif %}
+</div>
 
     </div>
     <hr>

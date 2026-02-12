@@ -2774,6 +2774,36 @@ def move_token(data):
         game,
         room=f"game_{game_id}"
     )
+@app.route('/search')
+def search():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+    query = request.args.get('q', '').strip()
+
+    if not query or len(query) < 2:
+        return render_template('search_results.html', posts=[], query=query)
+
+    conn = get_db()
+
+    posts = conn.execute("""
+        SELECT p.post_id,
+               p.title,
+               p.content,
+               p.created_at,
+               u.username
+        FROM posts p
+        JOIN users u ON p.user_id = u.user_id
+        WHERE p.title LIKE ? COLLATE NOCASE
+           OR p.content LIKE ? COLLATE NOCASE
+        ORDER BY p.created_at DESC
+    """, (f"%{query}%", f"%{query}%")).fetchall()
+
+    return render_template(
+        'search_results.html',
+        posts=posts,
+        query=query
+    )
 
 # --- Main ---
 if __name__ == "__main__":

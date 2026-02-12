@@ -22,9 +22,8 @@
 </head>
 
 <body>
-    <a href = "{{ url_for('ticgame') }}"> Fame button </a>
     <!-- TOP NAVBAR -->
-    <nav id="topnavbar" class="navbar navbar-expand-lg navbar-light border-bottom">
+    <nav id="topnavbar" class="navbar navbar-expand-lg navbar-light">
         <div class="container-fluid">
 
             <!-- Sidebar toggle + Brand -->
@@ -41,7 +40,24 @@
             </button>
 
             <!-- Navbar links -->
-            <div class="collapse navbar-collapse" id="navbarNav">
+<!-- Navbar links + Search -->
+<div class="collapse navbar-collapse" id="navbarNav">
+
+    <!-- Left spacer (keeps search centered properly) -->
+    <div class="flex-grow-1 d-none d-lg-block"></div>
+
+    <!-- Center Search Bar -->
+            <button class="btn btn-outline-primary" type="submit">
+            <i class="fa fa-search"></i>
+        </button>
+    <form class="d-flex mx-lg-auto my-2 my-lg-0 search" role="search" method="GET" action="{{ url_for('search') }}" style="max-width: 400px; width: 100%; margin-right: 20px;">
+        <input class="form-control me-2" type="search" name="q" placeholder="Search..." aria-label="Search">
+
+    </form>
+
+    <!-- Right side nav items -->
+    <ul class="navbar-nav ms-auto align-items-center">
+
                 <ul class="navbar-nav ms-auto align-items-center">
 
                     {% if logged_in %}
@@ -49,7 +65,7 @@
                     <li class="nav-item me-3">
                         <a class="nav-link position-relative" href="#" data-bs-toggle="modal"
                             data-bs-target="#aiChatModal">
-                            <i class="fa fa-android" style="font-size: 1.2rem; color: black;"></i>
+                            <i class="fa fa-android" style=""></i>
                         </a>
                     </li>
 
@@ -90,9 +106,9 @@
 
                     <!-- Profile + Logout -->
                     <li class="nav-item d-flex align-items-center me-3">
-                        <img src="{{ url_for('static', filename='profile.jpg') }}" class="rounded-circle me-2"
-                            width="40" height="40">
-                        <a class="nav-link p-0" href="{{ url_for('userprofile', username=username) }}">
+                        <img src="{{ url_for('static', filename='profile.jpg') }}" class="rounded-circle me-2 navbarpfp"
+                            width="40px" height="40px">
+                        <a class="nav-link" href="{{ url_for('userprofile', username=username) }}">
                             {{ username }}
                         </a>
                     </li>

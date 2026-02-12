@@ -19,7 +19,7 @@
     {% for post in posts %}
     <div class="post-wrapper mb-4"> 
         <div class="mb-2"> 
-            <a href="{{ url_for('community', community_id=post['community_id']) }}" class="badge bg-light text-dark text-decoration-none border">
+            <a href="{{ url_for('community', community_id=post['community_id']) }}" class="text-decoration-none">
                 {{ post['community_name'] }}
             </a>  
         </div>
