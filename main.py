@@ -219,7 +219,7 @@ def openpost(post_id):
         if handle_comment_submission(conn, post, current_user):
             return redirect(url_for("openpost", post_id=post_id))
 
-    comments = fetch_comments(conn, post_id)
+    comments = fetch_comments(get_db(), post_id, session.get('user_id'))
     is_registered = check_event_registration(conn, post, current_user)
 
     return render_template(
@@ -418,36 +418,95 @@ def delete_post(post_id):
         return jsonify({'status': 'error', 'message': f"Database error: {str(e)}"}), 500
 
 
-#@app.route('/delete_comment/<int:post_id>', methods=['POST'])
-def delete_comment(post_id):
+@app.route('/delete_comment/<int:comment_id>', methods=['POST'])
+def delete_comment(comment_id):
     if 'username' not in session:
         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
 
     conn = get_db()
     
-    # Get user_id
-    user = conn.execute("SELECT user_id FROM users WHERE username = ?", (session['username'],)).fetchone()
-    if not user:
-        return jsonify({'status': 'error', 'message': 'User not found'}), 404
-    user_id = user['user_id']
-
-    # Get the latest comment by this user for this post
+    # Get comment and verify ownership
     comment = conn.execute("""
-        SELECT comment_id FROM comments 
-        WHERE post_id = ? AND user_id = ? 
-        ORDER BY created_at DESC LIMIT 1
-    """, (post_id, user_id)).fetchone()
+        SELECT c.comment_id, u.username 
+        FROM comments c
+        JOIN users u ON c.user_id = u.user_id
+        WHERE c.comment_id = ?
+    """, (comment_id,)).fetchone()
 
     if not comment:
-        return jsonify({'status': 'error', 'message': 'No comment found to delete'}), 404
+        return jsonify({'status': 'error', 'message': 'Comment not found'}), 404
 
-    # Delete likes first
-    conn.execute('DELETE FROM comment_likes WHERE comment_id = ?', (comment['comment_id'],))
-    # Delete comment
-    conn.execute('DELETE FROM comments WHERE comment_id = ?', (comment['comment_id'],))
-    conn.commit()
+    if comment['username'] != session['username']:
+        return jsonify({'status': 'error', 'message': 'Permission denied'}), 403
 
-    return jsonify({'status': 'success'})
+    try:
+        # Delete likes first (handle case where comment_likes table is malformed)
+        try:
+            conn.execute('DELETE FROM comment_likes WHERE comment_id = ?', (comment_id,))
+        except sqlite3.OperationalError:
+            # Ignore "no such column: comment_id" error if the table schema is wrong
+            pass
+            
+        # Delete comment
+        conn.execute('DELETE FROM comments WHERE comment_id = ?', (comment_id,))
+        conn.commit()
+        return jsonify({'status': 'success'})
+
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/add_comment/<int:post_id>', methods=['POST'])
+def add_comment(post_id):
+    if 'username' not in session:
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
+
+    conn = get_db()
+    
+    # helper.py function to handle insertion
+    # We can reuse handle_comment_submission but we need it to return the new comment ID/data
+    # Or we can just write the insert here for simplicity and JSON return
+    
+    content = request.json.get('content') if request.is_json else request.form.get('content')
+    content = content.strip() if content else ""
+    
+    if not content:
+        return jsonify({'status': 'error', 'message': 'Comment cannot be empty'}), 400
+
+    user_row = conn.execute("SELECT user_id, username FROM users WHERE username = ?", (session['username'],)).fetchone()
+    user_id = user_row['user_id']
+    username = user_row['username']
+
+    try:
+        cursor = conn.execute(
+            "INSERT INTO comments (post_id, user_id, content) VALUES (?, ?, ?)",
+            (post_id, user_id, content)
+        )
+        new_comment_id = cursor.lastrowid
+        conn.commit()
+        
+        # Get the created timestamp
+        comment_row = conn.execute("SELECT created_at FROM comments WHERE comment_id = ?", (new_comment_id,)).fetchone()
+        created_at = comment_row['created_at']
+        
+        # Notify owner (optional, reused logic if possible, or just duplicate for now to be safe)
+        post = fetch_post(conn, post_id)
+        if post:
+            notify_post_owner(post, {'user_id': user_id, 'username': username})
+
+        formatted_content = str(mention(content))
+        return jsonify({
+            'status': 'success',
+            'comment_id': new_comment_id,
+            'content': content,
+            'formatted_content': formatted_content,
+            'username': username,
+            'created_at': created_at
+        })
+
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # --- Integrated AJAX Likes (No Refresh) ---
 @app.route('/like_post/<int:post_id>', methods=['POST'])
@@ -503,7 +562,7 @@ def like_post(post_id):
 @app.route('/like_comment/<int:comment_id>', methods=['POST'])
 def like_comment(comment_id):
     if 'user_id' not in session:
-        return {"status": "error", "message": "Unauthorized"}, 401
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
     
     conn = get_db()
     user_id = session.get('user_id')
@@ -529,25 +588,26 @@ def like_comment(comment_id):
                 (user_id, comment_id)
             )
             liked = True
-        
+            
         conn.commit()
         
-        # Get the new total like count for this specific comment
+        # Get new count
         count_row = conn.execute(
-            "SELECT COUNT(*) FROM comment_likes WHERE comment_id = ?", 
+            "SELECT COUNT(*) as count FROM comment_likes WHERE comment_id = ?", 
             (comment_id,)
         ).fetchone()
-        new_count = count_row[0] if count_row else 0
+        new_count = count_row['count']
         
-        return {
-            "status": "success", 
-            "liked": liked, 
-            "new_count": new_count
-        }
-
+        return jsonify({
+            "status": "success",
+            "liked": liked,
+            "new_count": new_count,
+            "comment_id": comment_id
+        })
+        
     except Exception as e:
         conn.rollback()
-        return {"status": "error", "message": str(e)}, 500
+        return jsonify({"status": "error", "message": str(e)}), 500 
 
 def mention_to_link(text):
     if not text:

@@ -67,12 +67,12 @@ def init_db():
     conn.execute("""
         CREATE TABLE IF NOT EXISTS comment_likes (
             like_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            post_id INTEGER NOT NULL,
+            comment_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(post_id) REFERENCES posts(post_id) ON DELETE CASCADE,
+            FOREIGN KEY(comment_id) REFERENCES comments(comment_id) ON DELETE CASCADE,
             FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-            UNIQUE(post_id, user_id)
+            UNIQUE(comment_id, user_id)
         )
     """)
 
@@ -703,12 +703,21 @@ def check_event_registration(conn, post, user):
     """, (post["post_id"], user["user_id"])).fetchone()
 
     return bool(result)
-def fetch_comments(conn, post_id):
+def fetch_comments(conn, post_id, current_user_id=None):
     return conn.execute("""
-        SELECT c.comment_id, c.content, c.created_at, u.username
+        SELECT 
+            c.comment_id, 
+            c.content, 
+            c.created_at, 
+            u.username,
+            (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.comment_id) as like_count,
+            (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.comment_id AND cl.user_id = ?) as user_has_liked
         FROM comments c
         JOIN users u ON c.user_id = u.user_id
         WHERE c.post_id = ?
+        ORDER BY c.created_at DESC
+    """, (current_user_id, post_id)).fetchall()
+
         ORDER BY c.created_at ASC
     """, (post_id,)).fetchall()
 # --- START / GET GAME HELPERS ---
