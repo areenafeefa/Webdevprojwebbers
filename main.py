@@ -392,56 +392,44 @@ def create_post(community_id=None):
         community_name=community_name,
         community_id=community_id
     )
-
-# inidicating your interests
 @app.route("/interests", methods=["POST"])
-def interests():
-    # Make sure user is logged in
+def submit_interests():
+
     user_id = session.get("user_id")
     if not user_id:
         return redirect(url_for("login"))
 
-    # 1Get checkbox interests (supports multiple)
     checkbox_interests = [
         i.strip().lower()
         for i in request.form.getlist("interests[]")
         if i.strip()
     ]
 
-    # Get custom interests (comma-separated)
     custom_input = request.form.get("custom_interests", "").strip()
-    custom_interests = []
 
-    if custom_input:
-        custom_interests = [
-            i.strip().lower()
-            for i in custom_input.split(",")
-            if i.strip()
-        ]
+    custom_interests = [
+        i.strip().lower()
+        for i in custom_input.split(",")
+        if i.strip()
+    ] if custom_input else []
 
-    # Combine + remove duplicates
     all_interests = set(checkbox_interests + custom_interests)
 
-    # Save to database
     conn = get_db()
-
-    # save to database
     for interest in all_interests:
         try:
             conn.execute(
-                """
-                INSERT INTO user_interests (user_id, interest)
-                VALUES (?, ?)
-                """,
+                "INSERT INTO user_interests (user_id, interest) VALUES (?, ?)",
                 (user_id, interest)
             )
         except sqlite3.IntegrityError:
-            # Interest already exists for this user
             pass
 
     conn.commit()
+    conn.close()
 
-    return redirect(url_for("index"))
+    # redirect to main page
+    return redirect(url_for("base"))
 
 #delete posts
 @app.route('/delete_post/<int:post_id>', methods=['POST'])
@@ -651,6 +639,9 @@ def mention_to_link(text):
 
 app.jinja_env.filters['mention'] = mention_to_link
 # Register
+from flask import Flask, render_template, request, redirect, url_for
+
+app = Flask(__name__)
 @app.route("/register", methods=["POST"])
 def register():
     # Extract form fields
@@ -698,12 +689,12 @@ def register():
         session["user_id"] = user_id
 
         flash("Registration successful!", "success")
-        return redirect(url_for("index"))
+        return redirect(url_for("interests"))
 
     except sqlite3.IntegrityError:
         # Trigger modal with flash
         flash("Username or email already exists", "register_error")
-        return redirect(url_for("index"))
+        return redirect(url_for("interests"))
     
 # Login
 @app.route("/login", methods=["GET","POST"])
