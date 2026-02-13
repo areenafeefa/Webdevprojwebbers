@@ -129,17 +129,20 @@ app.jinja_env.globals.update(
 @app.route('/')
 def index():
     conn = get_db()
-    
-    # 1. Get user_id safely. 
-    # If it's not in the session, try to find it via the username.
+
+    # 1️⃣ Get user_id safely
     user_id = session.get('user_id')
+    current_user = None
     if not user_id and 'username' in session:
-        user_row = conn.execute("SELECT user_id FROM users WHERE username = ?", (session['username'],)).fetchone()
+        user_row = conn.execute(
+            "SELECT user_id FROM users WHERE username = ?", 
+            (session['username'],)
+        ).fetchone()
         if user_row:
             user_id = user_row['user_id']
-            session['user_id'] = user_id  # Save it to session so we don't have to look it up again
+            session['user_id'] = user_id
 
-    # 2. Execute the query with the user_liked check
+    # 2️⃣ Fetch main posts feed with like info
     posts = conn.execute("""
         SELECT 
             posts.*, 
@@ -152,51 +155,90 @@ def index():
         JOIN communities ON posts.community_id = communities.community_id
         ORDER BY posts.created_at DESC
     """, (user_id,)).fetchall()
-    
-    return render_template('index.html', posts=posts)
-# Community page
+
+    # 3️⃣ Get home page sidebar data (user communities + recent posts)
+    sidebar_data = get_home_sidebar_data(user_id, top_n_communities=3, recent_posts_limit=5)
+
+    # 4️⃣ Fetch current user info for badge
+    if user_id:
+        user_row = conn.execute("""
+            SELECT u.user_id, u.username, COALESCE(p.display_name, u.username) AS display_name
+            FROM users u
+            LEFT JOIN user_profiles p ON u.user_id = p.user_id
+            WHERE u.user_id = ?
+        """, (user_id,)).fetchone()
+
+        if user_row:
+            current_user = dict(user_row)
+
+    # 5️⃣ Render template
+    return render_template(
+        'index.html',
+        posts=posts,
+        current_user=current_user,  # current user badge info
+        **sidebar_data
+    )
+
+# 
+#  Community page
 @app.route('/community/<int:community_id>')
 def community(community_id):
     conn = get_db()
     current_user_id = session.get('user_id')
     is_member = False
 
-    # 1. Self-heal session: If we have a username but no user_id, fetch it
+    # 1️⃣ Self-heal session
     if not current_user_id and 'username' in session:
-        user_row = conn.execute("SELECT user_id FROM users WHERE username = ?", (session['username'],)).fetchone()
+        user_row = conn.execute(
+            "SELECT user_id FROM users WHERE username = ?",
+            (session['username'],)
+        ).fetchone()
+
         if user_row:
             current_user_id = user_row['user_id']
-            session['user_id'] = current_user_id # Persist it for future requests
+            session['user_id'] = current_user_id
 
-    # 2. Check membership
+    # 2️⃣ Check membership
     if current_user_id:
         is_member = conn.execute(
             "SELECT 1 FROM community_members WHERE user_id = ? AND community_id = ?",
             (current_user_id, community_id)
         ).fetchone() is not None
 
-    # 3. Get community details
+    # 3️⃣ Get community details
     community_row = conn.execute(
         "SELECT * FROM communities WHERE community_id = ?",
         (community_id,)
     ).fetchone()
-    
+
     if not community_row:
         return "Community not found", 404
 
-    # 4. Fetch posts with Like Count and User Liked status
-    # We pass current_user_id to the subquery to determine the heart color
+    # 4️⃣ Fetch posts
     posts = conn.execute("""
         SELECT p.*, u.username,
                (SELECT COUNT(*) FROM post_likes WHERE post_id = p.post_id) AS like_count,
-               (SELECT 1 FROM post_likes WHERE post_id = p.post_id AND user_id = ?) AS user_liked
+               (SELECT 1 FROM post_likes 
+                WHERE post_id = p.post_id AND user_id = ?) AS user_liked
         FROM posts p
         JOIN users u ON p.user_id = u.user_id 
         WHERE p.community_id = ?
         ORDER BY p.created_at DESC
     """, (current_user_id, community_id)).fetchall()
 
-    return render_template('community.html', community=community_row, posts=posts, is_member=is_member)
+
+    # 5️⃣ Get sidebar data from helper
+    sidebar_data = get_community_sidebar_data(current_user_id, community_id)
+
+    return render_template(
+        'community.html',
+        posts=posts,
+        is_member=is_member,
+        **sidebar_data   # injects community, community_friends, community_members_count
+    )
+
+
+
 import time # Ensure this is at the top with your other imports
 
 # --- View Post + Comments (AJAX Integrated) ---
@@ -227,6 +269,7 @@ def openpost(post_id):
         post=post,
         comments=comments,
         is_registered=is_registered
+        
     )
 
 @app.route('/create_post', methods=['GET', 'POST'])
@@ -2864,6 +2907,42 @@ def search():
         posts=posts,
         query=query
     )
+
+
+@app.route('/api/events')
+def api_events():
+    conn = get_db()  # Your function to get DB connection
+    # Join posts + event_posts to get all info
+    rows = conn.execute("""
+        SELECT p.post_id, p.title, p.content, e.event_date, e.event_time, e.location
+        FROM posts p
+        JOIN event_posts e ON p.post_id = e.post_id
+        WHERE p.post_type = 'event'
+        ORDER BY e.event_date, e.event_time
+    """).fetchall()
+
+    events = []
+    for row in rows:
+        # Combine date + time for FullCalendar
+        if row['event_time']:
+            start = f"{row['event_date']}T{row['event_time']}"
+        else:
+            start = row['event_date']
+
+        events.append({
+            "id": row['post_id'],
+            "title": row['title'],
+            "start": start,
+            "description": row['content'] or "",
+            "location": row['location'] or ""
+        })
+
+    return jsonify(events)
+
+@app.route('/calendar')
+def calendar():
+    # Render the calendar page
+    return render_template('calendar.html')
 
 # --- Main ---
 if __name__ == "__main__":

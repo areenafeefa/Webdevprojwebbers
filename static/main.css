@@ -1,12 +1,21 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Luckiest+Guy&family=Noto+Sans:ital,wght@0,100..900;1,100..900&display=swap');
 
 
-
+/* Page Fade In Animation */
+@keyframes pageFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 
 :root {
 
   --navbar-height: 70px;
-  --sidebar-width: 260px;
+  --sidebar-width: 320px;
   --transition-speed: 0.25s;
 
   --color-primary: #747777;
@@ -21,9 +30,9 @@
   --color-success: #6a579b;
   --color-warning: #968e86;
   --color-danger: #2a338e;
-  --color-like: #db2777;
+  --color-like: #9a1616;
 
-  --color-bg: #f5f7fb;
+  --color-surface: #f5f7fb;
   --color-surface: #ffffff;
   --color-surface-alt: #f1f5f9;
   --color-border: #e2e8f0;
@@ -159,19 +168,27 @@ a:hover {
   padding: 28px;
   display: flex;
   flex-direction: column;
+  animation: pageFadeIn 0.4s ease-out;
+
 }
 
 .content-card,
 .card {
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  box-shadow: var(--shadow-sm);
   transition: 0.2s ease;
+  box-shadow: none !important;
+  border: 0 0 0 2px dotted green !important;
+
+
 }
 
 .post-card {
   padding: 20px;
   margin-bottom: 20px;
+}
+
+.card:hover {
+  filter: brightness(95%);
 }
 
 .btn {
@@ -271,3 +288,243 @@ a:hover {
 
 #topnavbar .search {
 padding-right: 20px;}
+
+i.fa.fa-home.me-2 {
+  font-size: x-large;
+
+}
+
+#sidebar .nav-link {
+  font-size: 15px;
+
+}
+
+/* ===================================================== */
+/* GLOBAL BUTTON RESET */
+/* ===================================================== */
+
+.btn {
+  font-weight: 500;
+  border-radius: 999px;
+  padding: 6px 18px;
+  transition: all 0.2s ease;
+  box-shadow: none !important;
+}
+
+.btn:focus,
+.btn:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+/* ===================================================== */
+/* PRIMARY BUTTON (FILLED) */
+/* ===================================================== */
+
+.btn-primary {
+  background: #2f2f2f !important;
+  border: 1px solid #2f2f2f !important;
+  color: #ffffff !important;
+}
+
+.btn-primary:hover {
+  background: #1c1c1c !important;
+  border-color: #1c1c1c !important;
+  color: #ffffff !important;
+}
+
+
+/* ===================================================== */
+/* SECONDARY / DEFAULT BUTTONS (OUTLINED) */
+/* ===================================================== */
+
+.btn-secondary,
+.btn-outline-primary,
+.btn-outline-secondary,
+.btn-light,
+.btn-dark,
+.btn {
+
+  background: transparent !important;
+  border: 1px solid #2f2f2f !important;
+  color: #2f2f2f !important;
+}
+
+.btn-secondary:hover,
+.btn-outline-primary:hover,
+.btn-outline-secondary:hover,
+.btn-light:hover,
+.btn-dark:hover,
+.btn:hover {
+
+  background: #2f2f2f !important;
+  color: #ffffff !important;
+  border-color: #2f2f2f !important;
+}
+
+
+/* ===================================================== */
+/* MUTED SUCCESS / DANGER (STILL OUTLINED) */
+/* ===================================================== */
+
+.btn-success {
+  background: transparent !important;
+  border: 1px solid var(--color-success) !important;
+  color: var(--color-success) !important;
+}
+
+.btn-success:hover {
+  background: var(--color-success) !important;
+  color: #ffffff !important;
+}
+
+.btn-danger,
+.btn-like {
+  background: transparent !important;
+  border: 1px solid #7a1f1f !important;
+  color: #7a1f1f !important;
+}
+
+.btn-danger:hover,
+.btn-like:hover {
+  background: #7a1f1f !important;
+  color: #ffffff !important;
+}
+
+
+/* ===================================================== */
+/* DISABLED */
+/* ===================================================== */
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ===================================================== */
+/* ICON BUTTONS (Auto-detect if button contains <i>) */
+/* ===================================================== */
+
+.btn:has(i) {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 6px 10px;
+  border-radius: 12px;
+  color: var(--color-muted) !important;
+  transition: all 0.2s ease;
+}
+
+/* Hover effect for icon buttons */
+.btn:has(i):hover {
+  background: rgba(0, 0, 0, 0.06) !important;
+  color: var(--color-text) !important;
+}
+
+/* Active press */
+.btn:has(i):active {
+  transform: scale(0.95);
+}
+
+/* Remove any primary/danger fill from icon buttons */
+.btn-primary:has(i),
+.btn-danger:has(i),
+.btn-success:has(i),
+.btn-secondary:has(i) {
+  background: transparent !important;
+  border: none !important;
+}
+
+/* ===================================================== */
+/* REMOVE BOOTSTRAP BLUE FOCUS */
+/* ===================================================== */
+
+.dropdown-toggle:focus,
+.dropdown-toggle:focus-visible,
+.btn:focus,
+.btn:focus-visible,
+.form-control:focus {
+  outline: none !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08) !important;
+  border-color: var(--color-border) !important;
+}
+
+
+/* ===================================================== */
+/* DROPDOWN CONTAINER */
+/* ===================================================== */
+
+.dropdown-menu {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 8px 6px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.08);
+  animation: dropdownFade 0.18s ease-out;
+  min-width: 180px;
+}
+
+
+/* Subtle fade + lift animation */
+@keyframes dropdownFade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+
+/* ===================================================== */
+/* DROPDOWN ITEMS */
+/* ===================================================== */
+
+.dropdown-item {
+  border-radius: 12px;
+  font-size: 0.9rem;
+  padding: 8px 14px;
+  color: var(--color-text);
+  transition: all 0.15s ease;
+}
+
+/* Hover */
+.dropdown-item:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--color-text);
+}
+
+/* Active / Click */
+.dropdown-item:active,
+.dropdown-item.active {
+  background: rgba(0, 0, 0, 0.08) !important;
+  color: var(--color-text) !important;
+}
+
+
+/* ===================================================== */
+/* DROPDOWN DIVIDER */
+/* ===================================================== */
+
+.dropdown-divider {
+  border-top: 1px solid var(--color-border);
+  margin: 6px 0;
+}
+
+
+/* ===================================================== */
+/* REMOVE HARSH DEFAULT STATES */
+/* ===================================================== */
+
+.show > .btn-secondary.dropdown-toggle,
+.show > .btn-primary.dropdown-toggle {
+  background: rgba(0, 0, 0, 0.04) !important;
+  color: var(--color-text) !important;
+  border-color: var(--color-border) !important;
+}

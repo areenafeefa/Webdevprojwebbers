@@ -134,49 +134,79 @@
     <div id="layoutWrapper" class="d-flex w-100">
 
         <!-- SIDE NAV -->
-        <nav id="sidebar" class="border-end">
-            <ul id="sidenav" class="nav flex-column p-3">
-                <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('index') }}">Home</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" data-bs-toggle="collapse" href="#communityMenu">Explore</a>
-                    <div class="collapse" id="communityMenu">
-                        <ul class="nav flex-column ms-3">
-                            {% for community in global_communities %}
-                            <li class="nav-item">
-                                <a class="nav-link"
-                                    href="{{ url_for('community', community_id=community['community_id']) }}">
-                                    {{ community['name'] }}
-                                </a>
-                            </li>
-                            {% endfor %}
-                        </ul>
-                    </div>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" data-bs-toggle="collapse" href="#usercommunityMenu">Communities</a>
-                    <div class="collapse" id="usercommunityMenu">
-                        <ul class="nav flex-column ms-3">
-                            {% for community in user_communities %}
-                            <li class="nav-item">
-                                <a class="nav-link"
-                                    href="{{ url_for('community', community_id=community['community_id']) }}">
-                                    {{ community['name'] }}
-                                </a>
-                            </li>
-                            {% endfor %}
-                        </ul>
-                    </div>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('find_a_friend_hub') }}">Find a Friend</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('my_messages') }}">Messages</a>
-                </li>
-            </ul>
-        </nav>
+<nav id="sidebar" class="border-end">
+    <ul id="sidenav" class="nav flex-column p-3">
+
+        <!-- ===== Home Category ===== -->
+        <li class="nav-item">
+            <a class="nav-link d-flex align-items-center" href="{{ url_for('index') }}">
+                <i class="fa fa-home me-2"></i>
+                Home
+            </a>
+        </li>
+        <p class=" text-muted small fw-bold mt-5 mb-1">COMMUNITIES</p>
+
+        <hr class="mt-0 P-0">
+
+        <!-- ===== Community Section ===== -->
+        <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="collapse" href="#communityMenu">
+                Explore
+            </a>
+            <div class="collapse" id="communityMenu">
+                <ul class="nav flex-column ms-3">
+                    {% for community in global_communities %}
+                    <li class="nav-item">
+                        <a class="nav-link"
+                            href="{{ url_for('community', community_id=community['community_id']) }}">
+                            {{ community['name'] }}
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </li>
+
+        <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="collapse" href="#usercommunityMenu">
+                Communities
+            </a>
+            <div class="collapse" id="usercommunityMenu">
+                <ul class="nav flex-column ms-3">
+                    {% for community in user_communities %}
+                    <li class="nav-item">
+                        <a class="nav-link"
+                            href="{{ url_for('community', community_id=community['community_id']) }}">
+                            {{ community['name'] }}
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </li>
+        <p class=" text-muted small fw-bold mt-5 mb-1">SOCIAL</p>
+
+        <hr class="mt-0">
+
+        <!-- ===== Social Section ===== -->
+        <li class="nav-item">
+            <a class="nav-link" href="{{ url_for('find_a_friend_hub') }}">
+                Find a Friend
+            </a>
+        </li>
+
+        <li class="nav-item">
+            <a class="nav-link" href="{{ url_for('my_messages') }}">
+                Messages
+            </a>
+        </li>
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('calendar') }}">
+        Calendar
+    </a>
+</li>
+    </ul>
+</nav>
 
         <!-- PAGE CONTENT -->
         <div id="maincontent" class="flex-grow-1 p-4">

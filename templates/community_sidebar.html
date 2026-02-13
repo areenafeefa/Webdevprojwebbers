@@ -1,0 +1,45 @@
+<div class="p-3 bg-light rounded">
+
+    <!-- Community Info -->
+    <h5 class="fw-bold">{{ community['name'] }}</h5>
+    <p class="text-muted small mb-2">{{ community['description'] }}</p>
+
+    <div class="d-flex justify-content-between mb-2">
+        <small class="text-muted"><i class="fa fa-users me-1"></i>
+            {{ community_members_count }} members
+        </small>
+        <small class="text-muted"><i class="fa fa-user-friends me-1"></i>
+            {{ community_friends|length }} friends
+        </small>
+    </div>
+
+    <hr class="my-2">
+
+    <!-- Friends in Community -->
+    <h6 class="text-uppercase small text-muted mt-3 mb-2">Friends in Community</h6>
+    <div class="d-flex flex-column gap-1" style="max-height: 300px; overflow-y: auto;">
+        {% for friend in community_friends %}
+        <div class="d-flex align-items-center">
+            <div class="rounded-circle bg-success me-2" style="width: 24px; height: 24px;"></div>
+            <span>{{ friend.display_name }} (@{{ friend.username }})</span>
+        </div>
+        {% else %}
+        <small class="text-muted">No friends in this community yet.</small>
+        {% endfor %}
+    </div>
+<div class="recent-posts mt-3">
+    <h6 class="text-uppercase small text-muted mb-2">Recent Posts</h6>
+
+    {% for post in recent_posts %}
+        <p class="mb-1">
+            <a href="{{ url_for('openpost', post_id=post['post_id']) }}" class="text-decoration-none">
+                {{ post.title }}
+            </a>
+        </p>
+        <hr class="my-1">
+    {% else %}
+        <p class="text-muted small mb-0">No posts yet.</p>
+    {% endfor %}
+</div>
+
+</div>

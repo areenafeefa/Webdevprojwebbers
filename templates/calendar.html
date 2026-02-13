@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="container my-4">
+    <h2 class="mb-4">Events Calendar</h2>
+    <div id="calendar"></div>
+</div>
+
+<!-- FullCalendar CSS -->
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet">
+
+<style>
+#calendar {
+  max-width: 900px;
+  min-height: 600px;
+  margin: 0 auto;
+  background: var(--color-surface);
+  border-radius: 16px;
+  box-shadow: var(--shadow-md);
+  padding: 20px;
+}
+.fc .fc-event {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+</style>
+
+<!-- FullCalendar JS -->
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/locales-all.global.min.js"></script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  if (typeof FullCalendar === "undefined") {
+    console.error("FullCalendar is not loaded!");
+    return;
+  }
+
+  var calendarEl = document.getElementById('calendar');
+
+  var calendar = new FullCalendar.Calendar(calendarEl, {
+    initialView: 'dayGridMonth',
+    headerToolbar: {
+      left: 'prev,next today',
+      center: 'title',
+      right: 'dayGridMonth,timeGridWeek,timeGridDay'
+    },
+    events: '/api/events',  // Loads your events from Flask
+    eventColor: '#3f4a5a',
+    eventTextColor: '#fff',
+    eventDisplay: 'block',
+    height: 'auto',
+
+    eventClick: function(info) {
+      let event = info.event.extendedProps;
+      let startTime = info.event.start
+        ? info.event.start.toLocaleTimeString([], { hour: '2-digit', minute:'2-digit' })
+        : "All day";
+
+      let content = `
+Title: ${info.event.title}
+Description: ${event.description || "No description"}
+Location: ${event.location || "Not specified"}
+Time: ${startTime}
+      `;
+      modal(content);
+    }
+  });
+
+  calendar.render();
+});
+</script>
+{% endblock %}
+

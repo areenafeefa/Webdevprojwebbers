@@ -414,7 +414,7 @@ def init_db():
 
     
     conn.commit()
-    conn.close()
+    
 
 def mention(text):
     if not text:
@@ -497,7 +497,7 @@ def count_unread_notifications(user_id):
     return row['cnt']
 
 # Mark a single notification as read
-def mark_notification_read(notification_id):
+def mark_notification_read(notification_id, user_id):
     conn = get_db()
     conn.execute("UPDATE notifications SET is_read=1 WHERE notification_id=?", (notification_id,))
     conn.commit()
@@ -718,8 +718,6 @@ def fetch_comments(conn, post_id, current_user_id=None):
         ORDER BY c.created_at DESC
     """, (current_user_id, post_id)).fetchall()
 
-        ORDER BY c.created_at ASC
-    """, (post_id,)).fetchall()
 # --- START / GET GAME HELPERS ---
 
 
@@ -777,14 +775,7 @@ def start_game(player1_id, player2_id, game_type='tictactoe'):
 
     conn.commit()
     return cursor.lastrowid
-    conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO games_2 (game_type, player_x_id, player_o_id, board_state, current_turn)
-        VALUES (?, ?, ?, ?, ?)
-    """, (game_type, player_x_id, player_o_id, '-'*9, 'X'))
-    conn.commit()
-    return cursor.lastrowid
+
 
 def get_game(game_id):
     conn = get_db()
@@ -963,3 +954,100 @@ def update_dice(game_id, dice):
         game["current_turn"],
         board["winner"]
     )
+
+def get_community_sidebar_data(user_id, community_id):
+    conn = get_db()
+
+    # 1️⃣ Get community
+    community = conn.execute(
+        "SELECT * FROM communities WHERE community_id = ?",
+        (community_id,)
+    ).fetchone()
+
+    # 2️⃣ Get community members
+    member_rows = conn.execute(
+        "SELECT user_id FROM community_members WHERE community_id = ?",
+        (community_id,)
+    ).fetchall()
+
+    community_member_ids = [row['user_id'] for row in member_rows]
+    community_members_count = len(community_member_ids)
+
+    # 3️⃣ Get user's friends
+    all_friends = get_friends(user_id) if user_id else []
+
+    # 4️⃣ Intersection: friends in community
+    community_friends = [
+        f for f in all_friends
+        if f['user_id'] in community_member_ids
+    ]
+
+    # 5️⃣ Get top 5 recent posts in community
+    recent_posts = conn.execute("""
+        SELECT post_id, title
+        FROM posts
+        WHERE community_id = ?
+        ORDER BY created_at DESC
+        LIMIT 5
+    """, (community_id,)).fetchall()
+
+
+    return {
+        "community": community,
+        "community_friends": community_friends,
+        "community_members_count": community_members_count,
+        "recent_posts": recent_posts
+    }
+
+def get_home_sidebar_data(user_id, top_n_communities=3, recent_posts_limit=5):
+    """
+    Returns the user's communities and top recent posts for home page sidebar.
+    """
+    if not user_id:
+        return {"user_communities": []}
+
+    conn = get_db()
+
+    # 1️⃣ Get communities the user is a member of
+    communities = conn.execute("""
+        SELECT c.community_id, c.name
+        FROM communities c
+        JOIN community_members cm ON c.community_id = cm.community_id
+        WHERE cm.user_id = ?
+    """, (user_id,)).fetchall()
+
+    user_communities = []
+
+    # 2️⃣ For each community, get top 5 recent posts
+    # Limit to top_n_communities by latest post date
+    community_posts = []
+
+    # First, get the latest post date per community
+    community_activity = conn.execute("""
+        SELECT c.community_id, c.name, MAX(p.created_at) AS latest_post
+        FROM communities c
+        JOIN community_members cm ON c.community_id = cm.community_id
+        LEFT JOIN posts p ON c.community_id = p.community_id
+        WHERE cm.user_id = ?
+        GROUP BY c.community_id
+        ORDER BY latest_post DESC
+        LIMIT ?
+    """, (user_id, top_n_communities)).fetchall()
+
+    for community in community_activity:
+        # Get top recent posts for this community
+        posts = conn.execute("""
+            SELECT post_id, title
+            FROM posts
+            WHERE community_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (community['community_id'], recent_posts_limit)).fetchall()
+
+        user_communities.append({
+            "community_id": community['community_id'],
+            "name": community['name'],
+            "recent_posts": posts
+        })
+
+    return {"user_communities": user_communities}

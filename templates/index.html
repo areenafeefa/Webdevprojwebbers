@@ -5,6 +5,8 @@
 {% endblock %}
 
 {% block body %}
+<div class = "d-flex"s>
+
 <div class="container mt-4">
     <div class="forum-head d-flex flex-row col-12 align-items-center">
         <h2 class="mb-0">Home</h2>
@@ -87,8 +89,13 @@
         <p class="text-muted text-center py-5">No posts available yet. Be the first to post!</p>
     {% endfor %}
     </div>
-</div>
 
+</div>
+        <div class=" flex-shrink-0 d-md-none d-lg-block mt-5" style="width: 300px;">
+            {% include 'home_sidebar.html' %}
+        </div>
+
+    </div>
 <script>
 /**
  * Modern AJAX Delete function
