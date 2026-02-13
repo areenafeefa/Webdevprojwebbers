@@ -1,0 +1,41 @@
+<div class=" p-3 bg-light rounded">
+    <h6 class="text-uppercase small text-muted mb-2">Your Communities</h6>
+    <hr>
+    {% for community in user_communities %}
+        <div class="mb-3">
+            <strong>{{ community.name }}</strong>
+
+            {% for post in community.recent_posts %}
+                <p class="mb-1">
+                    <a href="{{ url_for('openpost', post_id=post['post_id']) }}" class="text-decoration-none">
+                        {{ post.title }}
+                    </a>
+                </p>
+                <hr class="my-1">
+            {% else %}
+                <p class="text-muted small mb-0">No posts yet.</p>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="text-muted small">You are not a member of any communities yet.</p>
+    {% endfor %}
+<a href="{{ url_for('userprofile', username=current_user.username) }}"
+   class="d-flex align-items-center text-decoration-none p-2 rounded hover-bg-light"
+   style="gap:0.5rem;">
+
+    <!-- Profile Picture -->
+    <img src="{{ url_for('static', filename='images/default_avatar.png') }}"
+         alt="{{ current_user.username }}"
+         class="rounded-circle"
+         style="width:40px; height:40px; object-fit:cover;">
+
+    <!-- Username & Display Name -->
+    <div class="d-flex flex-column">
+        <span class="fw-semibold text-dark">{{ current_user.display_name }}</span>
+        <small class="text-muted">@{{ current_user.username }}</small>
+    </div>
+</a>
+
+
+</div>
+</div>

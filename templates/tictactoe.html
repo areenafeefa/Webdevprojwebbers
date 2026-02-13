@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block body %}
+<h2>Tic-Tac-Toe</h2>
+
+<p>Game ID: {{ game_id }}</p>
+<p>Current turn: <span id="turn">{{ turn }}</span></p>
+<p id="winner">{% if winner %}Winner: {{ winner }}{% endif %}</p>
+
+<table id="board" style="border-collapse: collapse;">
+    {% for i in range(3) %}
+    <tr>
+        {% for j in range(3) %}
+        {% set pos = i*3 + j %}
+        <td class="cell" data-pos="{{ pos }}" style="width:60px; height:60px; border:1px solid #000; text-align:center; font-size:24px; cursor:pointer;">
+            {{ board[pos] }}
+        </td>
+        {% endfor %}
+    </tr>
+    {% endfor %}
+</table>
+
+<script src="//cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+const socket = io();
+const gameId = {{ game_id }};
+const userId = {{ session['user_id'] }};
+
+// Join the game room
+socket.emit('join_game', { game_id: gameId });
+
+// Handle clicking a cell
+document.querySelectorAll('.cell').forEach(td => {
+    td.addEventListener('click', () => {
+        const pos = parseInt(td.dataset.pos);
+        socket.emit('make_move', { game_id: gameId, position: pos });
+    });
+});
+
+// Update board when receiving data from server
+socket.on('update_board', data => {
+    const board = data.board.split('');
+    document.querySelectorAll('.cell').forEach((td, idx) => {
+        td.textContent = board[idx];
+    });
+    document.getElementById('turn').textContent = data.turn;
+
+    if(data.winner) {
+        document.getElementById('winner').textContent = 'Winner: ' + data.winner;
+        alert('Game over! Winner: ' + data.winner);
+    }
+});
+
+// Show errors
+socket.on('error', data => {
+    alert(data.message);
+});
+</script>
+
+{% endblock %}
