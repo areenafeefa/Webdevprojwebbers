@@ -2,6 +2,23 @@
 
 {% block head %}
 <title>{{ community['name'] }} - My Forum</title>
+<style>
+.post-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.post-wrapper + .post-wrapper {
+    border-top: 1px solid #e0e0e0;
+    padding-top: 1rem;
+}
+
+.post-footer {
+    margin-top: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+</style>
 {% endblock %}
 
 {% block body %}
@@ -12,10 +29,8 @@
             <div class="container">
                 <div class="forum-head d-flex flex-column col-12 mt-4">
                     <div class="d-flex flex-row align-items-center">
-                        <h2 class="mb-0">{{ community['name'] }}</h2>
+                        <h2 class="mb-0" style = "font-size: xx-large">{{ community['name'] }}</h2>
                         <div class="d-flex flex-row ms-auto"> 
-                            <span class="fa fa-filter d-flex m-3" style="cursor: pointer;"></span>
-                            <a href="{{ url_for('create_post')}}" class="fa fa-plus d-flex m-3 text-decoration-none text-dark"></a>
                         </div>
                     </div>
                     <div class="col-12 d-flex justify-content-between align-items-start">
@@ -30,77 +45,128 @@
                             </button>
                         </form>
                         {% else %}
-                        <form action="{{ url_for('leave_community', community_id=community['community_id']) }}" method="post">
-                            <button type="submit" class="btn btn-outline-primary">
-                                Leave
-                            </button>
-                        </form>
+                        <div class = "col-4 d-flex gap-1 d-flex justify-content-end">
+                            <form action="{{ url_for('leave_community', community_id=community['community_id']) }}" method="post">
+                                <button type="submit" class="btn btn-outline-primary">
+                                    Joined
+                                </button>
+                            </form>
+                            <a href="{{ url_for('create_post')}}" class="btn btn-primary"> Create Post</a>
+                        </div>
                         {% endif %}
                     </div>
                 </div>
                 <hr>
 
-                {% for post in posts %}
-                <div class="card mb-4 shadow-sm">
-                    <div class="card-body position-relative">
-                        {% if session.get('username') == post['username'] %}
-                        <div class="position-absolute top-0 end-0 p-3">
-                            <form action="{{ url_for('delete_post', post_id=post['post_id']) }}" method="POST" style="display:inline;">
-                                <button type="submit" class="btn btn-sm text-danger border-0" onclick="return confirm('Delete this post?')">
-                                    <i class="fa fa-trash"></i>
-                                </button>
-                            </form>
-                        </div>
-                        {% endif %}
+        {% for post in posts %}
+        <div class="post-wrapper mb-4">
 
-                        <h4 class="card-title">{{ post['title'] | mention | safe }}</h4>
-                        <h6 class="card-subtitle mb-2 text-muted">
-                            @<a href="{{ url_for('userprofile', username=post['username']) }}" class="text-decoration-none">
-                                {{ post['username'] }}
-                            </a> | {{ post['created_at'] }}
-                        </h6>
-                        <hr>
+            <div class="mb-2"> 
+                <a href="{{ url_for('community', community_id=post['community_id']) }}">
+                    {{ post['community_name'] }}
+                </a>  
+                
+                {{ "Event" if post['post_type'] == 'event' else "" }}
 
-                        <p class="card-text">{{ post['content'] | mention | safe }}</p>
 
-                        {% if post['image_url'] %}
-                        <div class="mb-3">
-                            <a href="#" data-bs-toggle="modal" data-bs-target="#commModal{{ post['post_id'] }}">
-                                <img src="{{ post['image_url'] }}" class="img-thumbnail" style="max-height: 200px; cursor: pointer;">
-                            </a>
-                        </div>
+            </div>
 
-                        <div class="modal fade" id="commModal{{ post['post_id'] }}" tabindex="-1" aria-hidden="true">
-                            <div class="modal-dialog modal-dialog-centered modal-lg">
-                                <div class="modal-content bg-dark border-0">
-                                    <div class="modal-body text-center p-0">
-                                        <img src="{{ post['image_url'] }}" class="img-fluid rounded">
+            <div class="card post-card"
+                 onclick="window.location='{{ url_for('openpost', post_id=post['post_id']) }}'">
+
+                <div class="card-body position-relative">
+
+                    {% if session.get('username') == post['username'] %}
+                    <div class="position-absolute top-0 end-0 p-3">
+                        <button type="button"
+                                class="btn btn-sm text-danger border-0 p-0"
+                                onclick="event.stopPropagation(); deletePost(this, {{ post['post_id'] }})">
+                            <i class="fa fa-trash"></i>
+                        </button>
+                    </div>
+                    {% endif %}
+
+                    <h4 class="card-title">{{ post['title'] | mention | safe }}</h4>
+
+                    <h6 class="card-subtitle mb-2 text-muted">
+                        {{ "Event Organiser: " if post['post_type'] == "event" else "@" }}
+                        <a href="{{ url_for('userprofile', username=post['username']) }}"
+                            class="text-decoration-none">
+                            {{ post['username'] }}
+                        </a> • {{ post['created_at'] | timeago }}
+                    </h6>
+
+                    <hr>
+
+                    <p class="card-text">
+                        {{ post['content'] | mention | safe }}
+                    </p>
+
+                    {% if post['image_url'] %}
+                    <div class="mb-3">
+                        <a href="#" data-bs-toggle="modal"
+                           data-bs-target="#homeModal{{ post['post_id'] }}">
+                            <img src="{{ post['image_url'] }}"
+                                 class="img-thumbnail"
+                                 style="max-height: 250px; cursor: pointer;">
+                        </a>
+                    </div>
+
+                    <div class="modal fade"
+                         id="homeModal{{ post['post_id'] }}"
+                         tabindex="-1"
+                         aria-hidden="true">
+                        <div class="modal-dialog modal-dialog-centered modal-lg">
+                            <div class="modal-content bg-dark border-0">
+                                <div class="modal-body text-center p-0">
+                                    <img src="{{ post['image_url'] }}"
+                                         class="img-fluid rounded">
+                                    <div class="p-2 text-end">
+                                        <button type="button"
+                                                class="btn btn-secondary btn-sm"
+                                                data-bs-dismiss="modal">
+                                            Close
+                                        </button>
                                     </div>
                                 </div>
                             </div>
                         </div>
-                        {% endif %}
-
-                        <div class="mt-3 d-flex align-items-center">
-                            <button type="button" 
-                                    class="btn btn-link p-0 border-0 text-decoration-none d-flex align-items-center me-4 like-button"
-                                    data-post-id="{{ post['post_id'] }}"
-                                    onclick="toggleLike(this)">
-                                <i class="fa fa-heart me-2 {% if post['user_liked'] %}text-danger{% else %}text-secondary{% endif %}"></i>
-                                <span class="like-count text-dark fw-bold">{{ post['like_count'] or 0 }}</span>
-                            </button>
-
-                            <a href="{{ url_for('openpost', post_id=post['post_id']) }}" class="card-link text-decoration-none">
-                                <i class="fa fa-comment-o me-1"></i> View Post
-                            </a>
-                        </div>
                     </div>
+                    {% endif %}
+
+                    <div class="post-footer">
+
+                        <button type="button"
+                                class="btn btn-link p-0 border-0 text-decoration-none d-flex align-items-center like-button"
+                                data-post-id="{{ post['post_id'] }}"
+                                onclick="event.stopPropagation(); toggleLike(this)">
+
+                            <i class="fa fa-heart me-1
+                            {% if post['user_liked'] %}
+                                text-danger
+                            {% else %}
+                                text-secondary
+                            {% endif %}"></i>
+
+                            <span class="like-count text-dark">
+                                {{ post['like_count'] or 0 }}
+                            </span>
+                        </button>
+
+                        <a class="btn">
+                            <i class="fa fa-comment"></i> 
+                        </a>
+
+                    </div>
+
                 </div>
-                {% else %}
-                <div class="text-center mt-5">
-                    <p class="text-muted">No posts in this community yet.</p>
-                </div>
-                {% endfor %}
+            </div>
+        </div>
+        {% else %}
+            <p class="text-muted text-center py-5">
+                No posts available yet. Be the first to post!
+            </p>
+        {% endfor %}
             </div>
         </div>
 

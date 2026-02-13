@@ -54,14 +54,14 @@
 
 
     <!-- Right side nav items -->
-    <ul class="navbar-nav ms-auto align-items-center">
+    <ul class="navbar-nav ms-auto align-items-center topnavbarnav">
 
                 <ul class="navbar-nav ms-auto align-items-center">
 
                     {% if logged_in %}
                     <!-- AI Help Bot -->
-                    <li class="nav-item me-3">
-                        <a class="nav-link position-relative" href="#" data-bs-toggle="modal"
+                    <li class="nav-item ">
+                        <a class="nav-link " href="#" data-bs-toggle="modal"
                             data-bs-target="#aiChatModal">
                             <i class="fa fa-android" style=""></i>
                         </a>
@@ -69,7 +69,7 @@
 
                     <!-- Notification Bell -->
                     <li class="nav-item dropdown">
-                        <a class="nav-link position-relative" href="#" data-bs-toggle="dropdown">
+                        <a class="nav-link " href="#" data-bs-toggle="dropdown">
                             <i class="fa fa-bell"></i>
                             {% if unread_count > 0 %}
                             <span
@@ -101,19 +101,15 @@
                             </li>
                         </ul>
                     </li>
-
-                    <!-- Profile + Logout -->
-<li class="nav-item d-flex align-items-center me-3">
-    <img src="{{ current_user_profile_pic }}" class="rounded-circle me-2 navbarpfp"
-         width="40px" height="40px">
-    <a class="nav-link" href="{{ url_for('userprofile', username=username) }}">
-        {{ username }}
-    </a>
-</li>
-
+                           <!-- Profile + Logout -->
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
+                        <a class="nav-link" href="{{ url_for('userprofile', username=username) }}">
+                            {{ username }}
+                        </a>
                     </li>
+
+               <img src="{{ current_user_profile_pic }}" class="rounded-circle"
+                            width="40px" height="40px">
                     {% else %}
                     <!-- Login / Register -->
                     <li class="nav-item">
@@ -125,6 +121,7 @@
                     {% endif %}
 
                 </ul>
+
             </div>
         </div>
     </nav>
@@ -143,21 +140,34 @@
                 Home
             </a>
         </li>
-        <p class=" text-muted small fw-bold mt-5 mb-1">COMMUNITIES</p>
+                    {% if logged_in %}
 
-        <hr class="mt-0 P-0">
+        <!-- ===== User Profile ===== -->
+        <li class="nav-item ">
+            <a class="nav-link d-flex align-items-center" href="{{ url_for('userprofile', username = username) }}">
+                <img src="{{ current_user_profile_pic }}" alt="Profile" class="rounded-circle me-2" width="32" height="32">
+                <span>{{ username }}</span>
+            </a>
+        </li>
+                            {% else %}
+
+                    {% endif %}
+
+        <p class="text-muted small fw-bold mt-5 mb-1">COMMUNITIES</p>
+        <hr class="mt-0 p-0">
 
         <!-- ===== Community Section ===== -->
         <li class="nav-item">
-            <a class="nav-link" data-bs-toggle="collapse" href="#communityMenu">
+            <a class="nav-link d-flex align-items-center" data-bs-toggle="collapse" href="#communityMenu">
+                <i class="fa fa-compass me-2"></i>
                 Explore
             </a>
             <div class="collapse" id="communityMenu">
                 <ul class="nav flex-column ms-3">
                     {% for community in global_communities %}
                     <li class="nav-item">
-                        <a class="nav-link"
-                            href="{{ url_for('community', community_id=community['community_id']) }}">
+                        <a class="nav-link" href="{{ url_for('community', community_id=community['community_id']) }}">
+                            <i class="fa fa-hashtag me-2"></i>
                             {{ community['name'] }}
                         </a>
                     </li>
@@ -167,15 +177,16 @@
         </li>
 
         <li class="nav-item">
-            <a class="nav-link" data-bs-toggle="collapse" href="#usercommunityMenu">
+            <a class="nav-link d-flex align-items-center" data-bs-toggle="collapse" href="#usercommunityMenu">
+                <i class="fa fa-users me-2"></i>
                 Communities
             </a>
             <div class="collapse" id="usercommunityMenu">
                 <ul class="nav flex-column ms-3">
                     {% for community in user_communities %}
                     <li class="nav-item">
-                        <a class="nav-link"
-                            href="{{ url_for('community', community_id=community['community_id']) }}">
+                        <a class="nav-link" href="{{ url_for('community', community_id=community['community_id']) }}">
+                            <i class="fa fa-hashtag me-2"></i>
                             {{ community['name'] }}
                         </a>
                     </li>
@@ -183,27 +194,40 @@
                 </ul>
             </div>
         </li>
-        <p class=" text-muted small fw-bold mt-5 mb-1">SOCIAL</p>
 
+        <p class="text-muted small fw-bold mt-5 mb-1">SOCIAL</p>
         <hr class="mt-0">
 
         <!-- ===== Social Section ===== -->
         <li class="nav-item">
-            <a class="nav-link" href="{{ url_for('find_a_friend_hub') }}">
+            <a class="nav-link d-flex align-items-center" href="{{ url_for('find_a_friend_hub') }}">
+                <i class="fa fa-user-friends me-2"></i>
                 Find a Friend
             </a>
         </li>
 
         <li class="nav-item">
-            <a class="nav-link" href="{{ url_for('my_messages') }}">
+            <a class="nav-link d-flex align-items-center" href="{{ url_for('my_messages') }}">
+                <i class="fa fa-envelope me-2"></i>
                 Messages
             </a>
         </li>
-<li class="nav-item">
-    <a class="nav-link" href="{{ url_for('calendar') }}">
-        Calendar
-    </a>
-</li>
+
+        <li class="nav-item">
+            <a class="nav-link d-flex align-items-center" href="{{ url_for('calendar') }}">
+                <i class="fa fa-calendar me-2"></i>
+                Calendar
+            </a>
+        </li>
+
+        <!-- ===== Logout ===== -->
+        <li class="mt-5">
+            <a class=" btn d-flex align-items-center justify-content-end" href="{{ url_for('logout') }}">
+                <i class="fa fa-sign-out me-2"></i>
+                Logout
+            </a>
+        </li>
+
     </ul>
 </nav>
 

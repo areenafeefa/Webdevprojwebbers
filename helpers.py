@@ -680,6 +680,19 @@ def notify_post_owner(post, actor):
         link=url_for("openpost", post_id=post["post_id"]),
         reference_id=post["post_id"]
     )
+def handle_event_unregistration(conn, post, user):
+    if post["post_type"] != "event":
+        return False
+
+    if "unregister_event" not in request.form:
+        return False
+
+    conn.execute("""
+        DELETE FROM event_registrations
+        WHERE post_id = ? AND user_id = ?
+    """, (post["post_id"], user["user_id"]))
+    conn.commit()
+    return True
 
 
 def handle_comment_submission(conn, post, user):

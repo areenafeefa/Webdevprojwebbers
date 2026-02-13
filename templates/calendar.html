@@ -2,73 +2,173 @@
 
 {% block body %}
 <div class="container my-4">
-    <h2 class="mb-4">Events Calendar</h2>
-    <div id="calendar"></div>
+
+    <div class="calendar-layout" style="display:flex; gap:28px; align-items:flex-start;">
+
+        <!-- Calendar -->
+        <div id="calendar"
+             style="
+             flex:2;
+             min-height:650px;
+             background:#ffffff;
+             border-radius:20px;
+             padding:24px;
+             box-shadow:0 10px 30px rgba(0,0,0,0.05);
+             border:1px solid #A9BCD0;">
+        </div>
+
+        <!-- Sidebar -->
+        <div id="eventSidebar"
+             style="
+             flex:1;
+             min-height:650px;
+             max-height:650px;
+             background:#ffffff;
+             border-radius:20px;
+             padding:24px;
+             overflow-y:auto;
+             box-shadow:0 10px 30px rgba(0,0,0,0.05);
+             border:1px solid #A9BCD0;">
+
+            <h5 class="mb-3" style="font-weight:600;">Your Events</h5>
+            <div id="sidebarContent">
+                <p class="text-muted">Loading your events...</p>
+            </div>
+        </div>
+    </div>
 </div>
 
-<!-- FullCalendar CSS -->
 <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet">
-
-<style>
-#calendar {
-  max-width: 900px;
-  min-height: 600px;
-  margin: 0 auto;
-  background: var(--color-surface);
-  border-radius: 16px;
-  box-shadow: var(--shadow-md);
-  padding: 20px;
-}
-.fc .fc-event {
-  font-size: 0.9rem;
-  font-weight: 500;
-}
-</style>
-
-<!-- FullCalendar JS -->
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/locales-all.global.min.js"></script>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-  if (typeof FullCalendar === "undefined") {
-    console.error("FullCalendar is not loaded!");
-    return;
+
+  const sidebarContent = document.getElementById('sidebarContent');
+  let allEvents = [];
+
+  fetch('/api/events')
+    .then(res => res.json())
+    .then(data => {
+      allEvents = data;
+      loadSignedUpEvents();
+      initializeCalendar();
+    })
+    .catch(err => {
+      console.error(err);
+      sidebarContent.innerHTML = "<p class='text-danger'>Failed to load events.</p>";
+    });
+
+  function loadSignedUpEvents() {
+    const signedUp = allEvents.filter(e => e.is_signed_up);
+
+    if (!signedUp.length) {
+      sidebarContent.innerHTML =
+        "<p class='text-muted'>You have not signed up for any events.</p>";
+      return;
+    }
+
+    sidebarContent.innerHTML = "";
+
+    signedUp.forEach(event => {
+      const div = document.createElement('div');
+      div.style.padding = "14px";
+      div.style.borderRadius = "14px";
+      div.style.background = "#F4F7FA";
+      div.style.marginBottom = "14px";
+      div.style.cursor = "pointer";
+      div.style.transition = "0.2s ease";
+      div.style.border = "1px solid #D8DBE2";
+
+      div.onmouseover = () => div.style.background = "#E6EDF3";
+      div.onmouseleave = () => div.style.background = "#F4F7FA";
+
+      div.innerHTML = `
+        <div style="font-weight:600; margin-bottom:4px;">
+          ${event.title}
+        </div>
+        <div style="font-size:0.85rem; color:#373F51;">
+          ${event.start || ""}
+          ${event.location ? " • " + event.location : ""}
+        </div>
+      `;
+
+      div.addEventListener('click', () => {
+        showEventDetails(event);
+      });
+
+      sidebarContent.appendChild(div);
+    });
   }
 
-  var calendarEl = document.getElementById('calendar');
+  function showEventDetails(event) {
+    sidebarContent.innerHTML = `
+      <div class="mb-3">
+        <h5 style="font-weight:600;">${event.title}</h5>
+      </div>
 
-  var calendar = new FullCalendar.Calendar(calendarEl, {
-    initialView: 'dayGridMonth',
-    headerToolbar: {
-      left: 'prev,next today',
-      center: 'title',
-      right: 'dayGridMonth,timeGridWeek,timeGridDay'
-    },
-    events: '/api/events',  // Loads your events from Flask
-    eventColor: '#3f4a5a',
-    eventTextColor: '#fff',
-    eventDisplay: 'block',
-    height: 'auto',
+      <div style="background:#F4F7FA; padding:14px; border-radius:14px; border:1px solid #D8DBE2;">
+        <p><strong>Description:</strong><br>
+        ${event.description || "No description available."}</p>
 
-    eventClick: function(info) {
-      let event = info.event.extendedProps;
-      let startTime = info.event.start
-        ? info.event.start.toLocaleTimeString([], { hour: '2-digit', minute:'2-digit' })
-        : "All day";
+        <p><strong>Location:</strong> ${event.location || "Not specified"}</p>
+        <p><strong>Date:</strong> ${event.start || ""}</p>
+      </div>
 
-      let content = `
-Title: ${info.event.title}
-Description: ${event.description || "No description"}
-Location: ${event.location || "Not specified"}
-Time: ${startTime}
-      `;
-      modal(content);
-    }
-  });
+      <button class="btn btn-sm mt-3"
+              style="border:1px solid #373F51; color:#373F51; background:transparent;"
+              onclick="resetSidebar()">← Back</button>
+    `;
+  }
 
-  calendar.render();
+  window.resetSidebar = function() {
+    loadSignedUpEvents();
+  };
+
+  function initializeCalendar() {
+
+    var calendarEl = document.getElementById('calendar');
+
+    var calendar = new FullCalendar.Calendar(calendarEl, {
+      initialView: 'dayGridMonth',
+      headerToolbar: {
+        left: 'prev,next today',
+        center: 'title',
+        right: 'dayGridMonth,timeGridWeek,timeGridDay'
+      },
+      events: allEvents,
+      eventColor: '#373F51',
+      eventTextColor: '#ffffff',
+      eventDisplay: 'block',
+      height: 'auto',
+
+      eventDidMount: function(info) {
+        info.el.style.borderRadius = "10px";
+        info.el.style.padding = "4px";
+      },
+
+      eventClick: function(info) {
+        const event = allEvents.find(e => e.id == info.event.id);
+        if (event) showEventDetails(event);
+      }
+    });
+
+    calendar.render();
+
+    /* ===== Make Arrow Buttons Minimal + Dark ===== */
+    setTimeout(() => {
+      document.querySelectorAll('.fc-button').forEach(btn => {
+        btn.style.background = "transparent";
+        btn.style.border = "none";
+        btn.style.color = "#373F51";
+        btn.style.boxShadow = "none";
+        btn.style.fontWeight = "600";
+      });
+    }, 100);
+
+  }
+
 });
 </script>
-{% endblock %}
 
+{% endblock %}

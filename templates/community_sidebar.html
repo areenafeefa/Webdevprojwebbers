@@ -4,11 +4,15 @@
     <h5 class="fw-bold">{{ community['name'] }}</h5>
     <p class="text-muted small mb-2">{{ community['description'] }}</p>
 
+    {% if logged_in %}
+
     <div class="d-flex justify-content-between mb-2">
-        <small class="text-muted"><i class="fa fa-users me-1"></i>
+        <small class="text-muted">
+            <i class="fa fa-users me-1"></i>
             {{ community_members_count }} members
         </small>
-        <small class="text-muted"><i class="fa fa-user-friends me-1"></i>
+        <small class="text-muted">
+            <i class="fa fa-user-friends me-1"></i>
             {{ community_friends|length }} friends
         </small>
     </div>
@@ -16,17 +20,64 @@
     <hr class="my-2">
 
     <!-- Friends in Community -->
-    <h6 class="text-uppercase small text-muted mt-3 mb-2">Friends in Community</h6>
-    <div class="d-flex flex-column gap-1" style="max-height: 300px; overflow-y: auto;">
+    <h6 class="text-uppercase small text-muted mt-3 mb-2">
+        Friends in Community
+    </h6>
+
+    <div class="d-flex flex-column gap-2"
+         style="max-height: 300px; overflow-y: auto;">
+
         {% for friend in community_friends %}
-        <div class="d-flex align-items-center">
-            <div class="rounded-circle bg-success me-2" style="width: 24px; height: 24px;"></div>
-            <span>{{ friend.display_name }} @{{ friend.username }}</span>
+        <div class="d-flex align-items-center p-2 rounded bg-white shadow-sm">
+            <div class="rounded-circle bg-success me-2"
+                 style="width: 24px; height: 24px;"></div>
+
+            <span class="small">
+                {{ friend.display_name }}
+                <span class="text-muted">@{{ friend.username }}</span>
+            </span>
         </div>
         {% else %}
-        <small class="text-muted">No friends in this community yet.</small>
+        <small class="text-muted">
+            No friends in this community yet.
+        </small>
         {% endfor %}
+
     </div>
-    <div class = "recent posts">
+
+    {% else %}
+
+    <!-- Logged Out CTA -->
+    <hr class="my-2">
+
+    <div class="card bg-white p-3 text-center shadow-sm"
+         style="border-radius: 16px;">
+
+        <p class="mb-2 fw-semibold">
+            Connect with members in this community.
+        </p>
+
+        <p class="small text-muted mb-3">
+            Log in or create an account to see your friends,
+            join discussions, and participate.
+        </p>
+
+        <div class="d-flex gap-2 justify-content-center">
+            <button class="btn btn-primary btn-sm"
+                    data-bs-toggle="modal"
+                    data-bs-target="#loginModal">
+                Login
+            </button>
+
+            <button class="btn btn-outline-primary btn-sm"
+                    data-bs-toggle="modal"
+                    data-bs-target="#registerModal">
+                Sign Up
+            </button>
+        </div>
+
     </div>
+
+    {% endif %}
+
 </div>

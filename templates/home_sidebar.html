@@ -1,44 +1,50 @@
-         <h6 class="text-uppercase small text-muted mb-2">Recent posts</h6>
+<h6 class="text-uppercase small text-muted mb-2 mt-4">You</h6>
 
-
-<div class=" p-3 bg-light rounded">
-    <hr>
-    {% for community in user_communities %}
-        <div class="mb-3">
-            <strong>{{ community.name }}</strong>
-
-            {% for post in community.recent_posts %}
-                <p class="mb-1">
-                    <a href="{{ url_for('openpost', post_id=post['post_id']) }}" class="text-decoration-none">
-                        {{ post.title }}
-                    </a>
-                </p>
-                <hr class="my-1">
-            {% else %}
-                <p class="text-muted small mb-0">No posts yet.</p>
-            {% endfor %}
-        </div>
-    {% else %}
-        <p class="text-muted small">You are not a member of any communities yet.</p>
-    {% endfor %}
-
-
-</div>
-    <h6 class="text-uppercase small text-muted mb-2">You </h6>
+{% if logged_in %}
 
 <!-- User Badge Component -->
-<div class="d-flex  align-items-center card  mb-2 bg-light flex-row" style = "border-radius: 999px" id = "userbadge" >
+<div class="d-flex align-items-center card mb-2 bg-light flex-row"
+     style="border-radius: 999px;"
+     id="userbadge">
+
     <!-- Profile Picture -->
-    <img src="{{ current_user_profile_pic }}" alt="Profile Pic" 
-         class="rounded-circle me-2" width="50" height="50">
+    <img src="{{ current_user_profile_pic }}"
+         alt="Profile Pic"
+         class="rounded-circle me-3"
+         width="50" height="50">
 
     <!-- Name / Username -->
     <div class="d-flex flex-column">
-        <!-- Display Name -->
-        <span class="fw-bold">{{ session.get('display_name', username) }}</span>
-        <!-- Username -->
+        <span class="fw-bold">
+            {{ session.get('display_name', username) }}
+        </span>
         <small class="text-muted">@{{ username }}</small>
+    </div>
+
+</div>
+
+{% else %}
+
+<!-- Logged Out CTA -->
+<div class="card bg-light p-3 text-center" style="">
+    <p class="mb-2 fw-semibold">Join the conversation.</p>
+    <p class="small text-muted mb-3">
+        Log in or create an account to post, comment, and connect with communities.
+    </p>
+
+    <div class="d-flex gap-2 justify-content-center">
+        <button class="btn btn-primary btn-sm"
+                data-bs-toggle="modal"
+                data-bs-target="#loginModal">
+            Login
+        </button>
+
+        <button class="btn btn-outline-primary btn-sm"
+                data-bs-toggle="modal"
+                data-bs-target="#registerModal">
+            Sign Up
+        </button>
     </div>
 </div>
 
-</div>
+{% endif %}

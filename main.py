@@ -275,13 +275,19 @@ def openpost(post_id):
         if not current_user:
             return redirect(url_for("login"))
 
+        # Register
         if handle_event_registration(conn, post, current_user):
             return redirect(url_for("openpost", post_id=post_id))
 
+        # Unregister
+        if handle_event_unregistration(conn, post, current_user):
+            return redirect(url_for("openpost", post_id=post_id))
+
+        # Comments
         if handle_comment_submission(conn, post, current_user):
             return redirect(url_for("openpost", post_id=post_id))
 
-    comments = fetch_comments(get_db(), post_id, session.get('user_id'))
+    comments = fetch_comments(conn, post_id, session.get('user_id'))
     is_registered = check_event_registration(conn, post, current_user)
 
     return render_template(
@@ -289,7 +295,6 @@ def openpost(post_id):
         post=post,
         comments=comments,
         is_registered=is_registered
-        
     )
 
 @app.route('/create_post', methods=['GET', 'POST'])
@@ -2985,6 +2990,7 @@ def api_events():
             start = row['event_date']
 
         events.append({
+            "is_signed_up": True,
             "id": row['post_id'],
             "title": row['title'],
             "start": start,
@@ -3038,6 +3044,44 @@ def edit_profile_inline():
     flash("Profile updated!", "success")
     return redirect(url_for('userprofile', username=session.get('username')))
 
+from datetime import datetime, timezone
+
+def timeago(value):
+    # Convert string to datetime if needed
+    if isinstance(value, str):
+        try:
+            value = datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return value  # fallback if format is unexpected
+
+    # Make sure datetime is timezone-aware
+    now = datetime.now(timezone.utc)
+
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+
+    diff = now - value
+    seconds = int(diff.total_seconds())
+
+    intervals = (
+        ("year", 31536000),
+        ("month", 2592000),
+        ("week", 604800),
+        ("day", 86400),
+        ("hour", 3600),
+        ("minute", 60),
+    )
+
+    for name, count in intervals:
+        amount = seconds // count
+        if amount >= 1:
+            return f"{amount} {name}{'s' if amount > 1 else ''} ago"
+
+    return "Just now"
+
+
+# Register the filter
+app.jinja_env.filters["timeago"] = timeago
 
 # --- Main ---
 if __name__ == "__main__":
