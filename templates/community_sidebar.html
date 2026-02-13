@@ -21,25 +21,12 @@
         {% for friend in community_friends %}
         <div class="d-flex align-items-center">
             <div class="rounded-circle bg-success me-2" style="width: 24px; height: 24px;"></div>
-            <span>{{ friend.display_name }} (@{{ friend.username }})</span>
+            <span>{{ friend.display_name }} @{{ friend.username }}</span>
         </div>
         {% else %}
         <small class="text-muted">No friends in this community yet.</small>
         {% endfor %}
     </div>
-<div class="recent-posts mt-3">
-    <h6 class="text-uppercase small text-muted mb-2">Recent Posts</h6>
-
-    {% for post in recent_posts %}
-        <p class="mb-1">
-            <a href="{{ url_for('openpost', post_id=post['post_id']) }}" class="text-decoration-none">
-                {{ post.title }}
-            </a>
-        </p>
-        <hr class="my-1">
-    {% else %}
-        <p class="text-muted small mb-0">No posts yet.</p>
-    {% endfor %}
-</div>
-
+    <div class = "recent posts">
+    </div>
 </div>

@@ -177,14 +177,9 @@ a:hover {
   background: var(--color-surface);
   transition: 0.2s ease;
   box-shadow: none !important;
-  border: 0 0 0 2px dotted green !important;
+  border: none ;
 
 
-}
-
-.post-card {
-  padding: 20px;
-  margin-bottom: 20px;
 }
 
 .card:hover {

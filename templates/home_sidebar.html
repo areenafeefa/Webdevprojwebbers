@@ -1,5 +1,7 @@
+         <h6 class="text-uppercase small text-muted mb-2">Recent posts</h6>
+
+
 <div class=" p-3 bg-light rounded">
-    <h6 class="text-uppercase small text-muted mb-2">Your Communities</h6>
     <hr>
     {% for community in user_communities %}
         <div class="mb-3">
@@ -19,23 +21,24 @@
     {% else %}
         <p class="text-muted small">You are not a member of any communities yet.</p>
     {% endfor %}
-<a href="{{ url_for('userprofile', username=current_user.username) }}"
-   class="d-flex align-items-center text-decoration-none p-2 rounded hover-bg-light"
-   style="gap:0.5rem;">
-
-    <!-- Profile Picture -->
-    <img src="{{ url_for('static', filename='images/default_avatar.png') }}"
-         alt="{{ current_user.username }}"
-         class="rounded-circle"
-         style="width:40px; height:40px; object-fit:cover;">
-
-    <!-- Username & Display Name -->
-    <div class="d-flex flex-column">
-        <span class="fw-semibold text-dark">{{ current_user.display_name }}</span>
-        <small class="text-muted">@{{ current_user.username }}</small>
-    </div>
-</a>
 
 
 </div>
+    <h6 class="text-uppercase small text-muted mb-2">You </h6>
+
+<!-- User Badge Component -->
+<div class="d-flex  align-items-center card  mb-2 bg-light flex-row" style = "border-radius: 999px" id = "userbadge" >
+    <!-- Profile Picture -->
+    <img src="{{ current_user_profile_pic }}" alt="Profile Pic" 
+         class="rounded-circle me-2" width="50" height="50">
+
+    <!-- Name / Username -->
+    <div class="d-flex flex-column">
+        <!-- Display Name -->
+        <span class="fw-bold">{{ session.get('display_name', username) }}</span>
+        <!-- Username -->
+        <small class="text-muted">@{{ username }}</small>
+    </div>
+</div>
+
 </div>

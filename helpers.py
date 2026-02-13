@@ -412,7 +412,11 @@ def init_db():
         )
     """)
 
-    
+    try:
+        conn.execute("ALTER TABLE user_profiles ADD COLUMN profile_pic TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+
     conn.commit()
     
 
@@ -1051,3 +1055,5 @@ def get_home_sidebar_data(user_id, top_n_communities=3, recent_posts_limit=5):
         })
 
     return {"user_communities": user_communities}
+
+

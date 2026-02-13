@@ -77,6 +77,7 @@ def inject_globals():
     else:
         notifications = []
         unread_count = 0
+        
 
     
     return dict(
@@ -86,6 +87,25 @@ def inject_globals():
         username=session.get('username'),
         notifications=notifications,
         unread_count=unread_count)
+@app.context_processor
+def inject_user_profile_pic():
+    if 'user_id' in session:
+        conn = get_db()
+        user = conn.execute("""
+            SELECT profile_pic FROM user_profiles WHERE user_id = ?
+        """, (session['user_id'],)).fetchone()
+        
+        if user and user['profile_pic']:
+            # Wrap the DB path in url_for so it works in the browser
+            profile_pic = url_for('static', filename=user['profile_pic'])
+        else:
+            profile_pic = url_for('static', filename='img.png')  # default fallback
+        
+        return dict(current_user_profile_pic=profile_pic)
+    
+    # fallback if not logged in
+    return dict(current_user_profile_pic=url_for('static', filename='img.png'))
+
 @app.teardown_appcontext
 def close_db(error):
     if hasattr(g, 'sqlite3_db'):
@@ -774,10 +794,10 @@ def userprofile(username):
     # 1. Get the ID of the person CURRENTLY logged in (to check for likes and friendship)
     viewer_id = session.get('user_id', 0) 
 
-    # --- Profile info ---
+    # --- Profile info (include profile_pic) ---
     profile = conn.execute("""
         SELECT u.user_id, u.username, u.email, u.phone, u.age,
-               p.display_name, p.bio
+               p.display_name, p.bio, p.profile_pic
         FROM users u
         JOIN user_profiles p ON u.user_id = p.user_id
         WHERE u.username = ?
@@ -2880,34 +2900,69 @@ def move_token(data):
 @app.route('/search')
 def search():
     if 'user_id' not in session:
-        return redirect(url_for('login'))
+        return jsonify({'results': []})
 
     query = request.args.get('q', '').strip()
-
-    if not query or len(query) < 2:
-        return render_template('search_results.html', posts=[], query=query)
+    if len(query) < 2:
+        return jsonify({'results': []})
 
     conn = get_db()
 
+    # Search posts
     posts = conn.execute("""
-        SELECT p.post_id,
-               p.title,
-               p.content,
-               p.created_at,
-               u.username
+        SELECT p.post_id, p.title, u.username
         FROM posts p
         JOIN users u ON p.user_id = u.user_id
-        WHERE p.title LIKE ? COLLATE NOCASE
-           OR p.content LIKE ? COLLATE NOCASE
+        WHERE p.title LIKE ? OR p.content LIKE ?
         ORDER BY p.created_at DESC
+        LIMIT 5
     """, (f"%{query}%", f"%{query}%")).fetchall()
 
-    return render_template(
-        'search_results.html',
-        posts=posts,
-        query=query
-    )
+    # Search users
+    users = conn.execute("""
+        SELECT u.user_id, u.username, up.display_name, up.profile_pic
+        FROM users u
+        LEFT JOIN user_profiles up ON u.user_id = up.user_id
+        WHERE u.username LIKE ? OR up.display_name LIKE ?
+        LIMIT 5
+    """, (f"%{query}%", f"%{query}%")).fetchall()
 
+
+    # Search communities
+    communities = conn.execute("""
+        SELECT community_id, name
+        FROM communities
+        WHERE name LIKE ?
+        LIMIT 5
+    """, (f"%{query}%",)).fetchall()
+
+    results = []
+
+    for p in posts:
+        results.append({
+            'label': p['title'],
+            'subtext': f"Post by @{p['username']}",
+            'link': url_for('openpost', post_id=p['post_id']),
+            'img': None
+        })
+
+    for u in users:
+        results.append({
+            'label': u['display_name'] or u['username'],
+            'subtext': f"@{u['username']}",
+            'link': url_for('userprofile', username=u['username']),
+            'img': u['profile_pic'] or url_for('static', filename='img.png')
+        })
+
+    for c in communities:
+        results.append({
+            'label': c['name'],
+            'subtext': 'Community',
+            'link': url_for('community', community_id=c['community_id']),
+            'img': None
+        })
+
+    return jsonify({'results': results})
 
 @app.route('/api/events')
 def api_events():
@@ -2943,6 +2998,46 @@ def api_events():
 def calendar():
     # Render the calendar page
     return render_template('calendar.html')
+
+@app.route('/edit_profile_inline', methods=['POST'])
+def edit_profile_inline():
+    if 'user_id' not in session:
+        flash("You must be logged in to edit your profile.", "danger")
+        return redirect(url_for('index'))
+
+    user_id = session['user_id']
+    display_name = request.form.get('display_name', '').strip()
+    bio = request.form.get('bio', '').strip()
+
+    file = request.files.get('profile_pic')
+    profile_pic_path = None
+    if file and file.filename != '' and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        filename = f"user_{user_id}_{filename}"
+        os.makedirs(os.path.join(app.root_path, 'static', 'uploads'), exist_ok=True)
+        save_path = os.path.join(app.root_path, 'static', 'uploads', filename)
+        file.save(save_path)
+        profile_pic_path = f"uploads/{filename}"
+
+    conn = get_db()
+    if profile_pic_path:
+        conn.execute("""
+            UPDATE user_profiles
+            SET display_name = ?, bio = ?, profile_pic = ?
+            WHERE user_id = ?
+        """, (display_name, bio, profile_pic_path, user_id))
+    else:
+        conn.execute("""
+            UPDATE user_profiles
+            SET display_name = ?, bio = ?
+            WHERE user_id = ?
+        """, (display_name, bio, user_id))
+    conn.commit()
+    conn.close()
+
+    flash("Profile updated!", "success")
+    return redirect(url_for('userprofile', username=session.get('username')))
+
 
 # --- Main ---
 if __name__ == "__main__":
