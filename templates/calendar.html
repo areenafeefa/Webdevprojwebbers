@@ -2,40 +2,39 @@
 
 {% block body %}
 <div class="container my-4">
+  <div class="calendar-layout" style="display:flex; gap:28px; align-items:flex-start;">
 
-    <div class="calendar-layout" style="display:flex; gap:28px; align-items:flex-start;">
-
-        <!-- Calendar -->
-        <div id="calendar"
-             style="
-             flex:2;
-             min-height:650px;
-             background:#ffffff;
-             border-radius:20px;
-             padding:24px;
-             box-shadow:0 10px 30px rgba(0,0,0,0.05);
-             border:1px solid #A9BCD0;">
-        </div>
-
-        <!-- Sidebar -->
-        <div id="eventSidebar"
-             style="
-             flex:1;
-             min-height:650px;
-             max-height:650px;
-             background:#ffffff;
-             border-radius:20px;
-             padding:24px;
-             overflow-y:auto;
-             box-shadow:0 10px 30px rgba(0,0,0,0.05);
-             border:1px solid #A9BCD0;">
-
-            <h5 class="mb-3" style="font-weight:600;">Your Events</h5>
-            <div id="sidebarContent">
-                <p class="text-muted">Loading your events...</p>
-            </div>
-        </div>
+    <!-- Calendar -->
+    <div id="calendar"
+         style="
+         flex:2;
+         min-height:650px;
+         background:#ffffff;
+         border-radius:20px;
+         padding:24px;
+         box-shadow:0 10px 30px rgba(0,0,0,0.05);
+         border:1px solid #A9BCD0;">
     </div>
+
+    <!-- Sidebar -->
+    <div id="eventSidebar"
+         style="
+         flex:1;
+         min-height:650px;
+         max-height:650px;
+         background:#ffffff;
+         border-radius:20px;
+         padding:24px;
+         overflow-y:auto;
+         box-shadow:0 10px 30px rgba(0,0,0,0.05);
+         border:1px solid #A9BCD0;">
+
+      <h5 class="mb-3" style="font-weight:600;">Your Events</h5>
+      <div id="sidebarContent">
+        <p class="text-muted">Loading your events...</p>
+      </div>
+    </div>
+  </div>
 </div>
 
 <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" rel="stylesheet">
@@ -45,26 +44,20 @@
 document.addEventListener('DOMContentLoaded', function() {
 
   const sidebarContent = document.getElementById('sidebarContent');
-  let allEvents = [];
+  const calendarEl = document.getElementById('calendar');
+  let allEvents = []; // global within DOMContentLoaded
 
-  fetch('/api/events')
-    .then(res => res.json())
-    .then(data => {
-      allEvents = data;
-      loadSignedUpEvents();
-      initializeCalendar();
-    })
-    .catch(err => {
-      console.error(err);
-      sidebarContent.innerHTML = "<p class='text-danger'>Failed to load events.</p>";
-    });
+  // Reset sidebar to show all signed-up events
+  function resetSidebar() {
+    loadSignedUpEvents();
+  }
 
+  // Populate sidebar with signed-up events
   function loadSignedUpEvents() {
     const signedUp = allEvents.filter(e => e.is_signed_up);
 
     if (!signedUp.length) {
-      sidebarContent.innerHTML =
-        "<p class='text-muted'>You have not signed up for any events.</p>";
+      sidebarContent.innerHTML = "<p class='text-muted'>You have not signed up for any events.</p>";
       return;
     }
 
@@ -84,23 +77,20 @@ document.addEventListener('DOMContentLoaded', function() {
       div.onmouseleave = () => div.style.background = "#F4F7FA";
 
       div.innerHTML = `
-        <div style="font-weight:600; margin-bottom:4px;">
-          ${event.title}
-        </div>
+        <div style="font-weight:600; margin-bottom:4px;">${event.title}</div>
         <div style="font-size:0.85rem; color:#373F51;">
-          ${event.start || ""}
+          ${event.start ? new Date(event.start).toLocaleString() : ""}
           ${event.location ? " • " + event.location : ""}
         </div>
       `;
 
-      div.addEventListener('click', () => {
-        showEventDetails(event);
-      });
+      div.addEventListener('click', () => showEventDetails(event));
 
       sidebarContent.appendChild(div);
     });
   }
 
+  // Show a single event in sidebar
   function showEventDetails(event) {
     sidebarContent.innerHTML = `
       <div class="mb-3">
@@ -108,11 +98,9 @@ document.addEventListener('DOMContentLoaded', function() {
       </div>
 
       <div style="background:#F4F7FA; padding:14px; border-radius:14px; border:1px solid #D8DBE2;">
-        <p><strong>Description:</strong><br>
-        ${event.description || "No description available."}</p>
-
+        <p><strong>Description:</strong><br>${event.description || "No description available."}</p>
         <p><strong>Location:</strong> ${event.location || "Not specified"}</p>
-        <p><strong>Date:</strong> ${event.start || ""}</p>
+        <p><strong>Date:</strong> ${event.start ? new Date(event.start).toLocaleString() : ""}</p>
       </div>
 
       <button class="btn btn-sm mt-3"
@@ -121,15 +109,11 @@ document.addEventListener('DOMContentLoaded', function() {
     `;
   }
 
-  window.resetSidebar = function() {
-    loadSignedUpEvents();
-  };
+  window.resetSidebar = resetSidebar; // make globally accessible for button
 
+  // Initialize FullCalendar
   function initializeCalendar() {
-
-    var calendarEl = document.getElementById('calendar');
-
-    var calendar = new FullCalendar.Calendar(calendarEl, {
+    const calendar = new FullCalendar.Calendar(calendarEl, {
       initialView: 'dayGridMonth',
       headerToolbar: {
         left: 'prev,next today',
@@ -141,12 +125,10 @@ document.addEventListener('DOMContentLoaded', function() {
       eventTextColor: '#ffffff',
       eventDisplay: 'block',
       height: 'auto',
-
       eventDidMount: function(info) {
         info.el.style.borderRadius = "10px";
         info.el.style.padding = "4px";
       },
-
       eventClick: function(info) {
         const event = allEvents.find(e => e.id == info.event.id);
         if (event) showEventDetails(event);
@@ -155,7 +137,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     calendar.render();
 
-    /* ===== Make Arrow Buttons Minimal + Dark ===== */
+    // Style buttons minimally
     setTimeout(() => {
       document.querySelectorAll('.fc-button').forEach(btn => {
         btn.style.background = "transparent";
@@ -165,8 +147,27 @@ document.addEventListener('DOMContentLoaded', function() {
         btn.style.fontWeight = "600";
       });
     }, 100);
-
   }
+
+  // Fetch events from API
+  fetch('/api/events')
+    .then(res => res.json())
+    .then(data => {
+      allEvents = data.map(ev => {
+        // Ensure start is always ISO string
+        if (ev.start) ev.start = new Date(ev.start).toISOString();
+        return ev;
+      });
+
+      console.log("All Events:", allEvents); // debug
+
+      loadSignedUpEvents(); // sidebar
+      initializeCalendar(); // calendar
+    })
+    .catch(err => {
+      console.error(err);
+      sidebarContent.innerHTML = "<p class='text-danger'>Failed to load events.</p>";
+    });
 
 });
 </script>
