@@ -136,22 +136,13 @@
 
                     <div class="post-footer">
 
-                        <button type="button"
-                                class="btn btn-link p-0 border-0 text-decoration-none d-flex align-items-center like-button"
-                                data-post-id="{{ post['post_id'] }}"
-                                onclick="event.stopPropagation(); toggleLike(this)">
-
-                            <i class="fa fa-heart me-1
-                            {% if post['user_liked'] %}
-                                text-danger
-                            {% else %}
-                                text-secondary
-                            {% endif %}"></i>
-
-                            <span class="like-count text-dark">
-                                {{ post['like_count'] or 0 }}
-                            </span>
-                        </button>
+                            <button type="button" 
+                                    class="btn btn-link p-0 border-0 text-decoration-none d-flex align-items-center me-4 like-button"
+                                    data-post-id="{{ post['post_id'] }}"
+                                    onclick="toggleLike(this)">
+                                <i class="fa fa-heart me-2 {% if post['user_liked'] %}text-danger{% else %}text-secondary{% endif %}"></i>
+                                <span class="like-count text-dark fw-bold">{{ post['like_count'] or 0 }}</span>
+                            </button>
 
                         <a class="btn">
                             <i class="fa fa-comment"></i> 

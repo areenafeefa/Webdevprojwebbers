@@ -32,7 +32,7 @@
 {% if logged_in %}
 
 <!-- User Badge Component -->
-<div class="d-flex align-items-center card mb-2 bg-light flex-row"
+<div class="d-flex align-items-center  mb-2 flex-row btn-primary"
      style="border-radius: 999px;"
      id="userbadge">
 
@@ -47,7 +47,7 @@
         <span class="fw-bold">
             {{ session.get('display_name', username) }}
         </span>
-        <small class="text-muted">@{{ username }}</small>
+        <small class="text-small">@{{ username }}</small>
     </div>
 
 </div>

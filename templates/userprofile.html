@@ -165,11 +165,12 @@
                                 <a href="{{ url_for('userprofile', username=post['username']) }}" class="metadata-link">@{{ post['username'] }}</a> | {{ post['created_at'] }}
                             </h6>
                             <p class="card-text text-dark">{{ post['content'] | mention | safe }}</p>
-                            {% if post['image_path'] %}
-                            <div class="post-img-container">
-                                <img src="{{ url_for('static', filename=post['image_path']) }}" class="post-img shadow-sm" alt="Post content">
-                            </div>
-                            {% endif %}
+            {% if post['image_url'] %}
+            <div class="post-image-container">
+                <img src="{{ post['image_url'] }}" class="post-image shadow-sm">
+            </div>
+            {% endif %}
+
             <a class="btn-outline-primary btn "  href = '{{ url_for('openpost', post_id=post['post_id']) }}' > View Post </a>
 
                         </div>
