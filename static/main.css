@@ -30,6 +30,7 @@
   --color-surface-alt: var(--color-light);
   --color-border: var(--color-accent);
 
+
   --color-text: var(--color-dark);
   --color-muted: rgba(55,63,81,0.7);
 
@@ -41,7 +42,7 @@
   --color-like: #9a1616;
 
   /* Typography */
-  --font-main: "Nunito", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-main: "Nunito", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
   /* Radii */
   --radius-sm: 10px;
@@ -166,6 +167,10 @@ a:hover { color: var(--color-primary-hover); }
   display: flex;
   flex-direction: column;
   animation: pageFadeIn 0.4s ease-out;
+  padding-left: 20px;
+  padding-right: 20px;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 /* =================================== */
