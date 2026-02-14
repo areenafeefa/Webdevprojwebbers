@@ -218,10 +218,14 @@ def init_db():
     conn.execute("""
         CREATE TABLE IF NOT EXISTS user_stats (
             user_id INTEGER PRIMARY KEY,
-            streak_bingo INTEGER DEFAULT 0, last_bingo_date TEXT,
-            streak_crossword INTEGER DEFAULT 0, last_crossword_date TEXT,
-            streak_song INTEGER DEFAULT 0, last_song_date TEXT,
-            FOREIGN KEY(user_id) REFERENCES users(user_id)
+            streak_bingo INTEGER DEFAULT 0,
+            streak_crossword INTEGER DEFAULT 0,
+            streak_song INTEGER DEFAULT 0,
+            last_bingo_date DATE,
+            last_crossword_date DATE,
+            last_song_date DATE,
+            total_games INTEGER DEFAULT 0,
+            FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
         )
     """)
 
@@ -234,30 +238,39 @@ def init_db():
             player_2_id INTEGER,
             status TEXT DEFAULT 'active',
             score INTEGER DEFAULT 0,
+            game_data TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
-    # Crossword State
+
+    #crossword states
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS crossword_state (
-            session_id INTEGER NOT NULL,
-            row INTEGER NOT NULL,
-            col INTEGER NOT NULL,
-            letter TEXT NOT NULL,
-            updated_by INTEGER NOT NULL,
-            PRIMARY KEY (session_id, row, col)
-        )
+    CREATE TABLE IF NOT EXISTS crossword_states (
+        state_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL,
+        grid_state TEXT,
+        words_found TEXT,
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (session_id) REFERENCES game_sessions(session_id) ON DELETE CASCADE
+    )
     """)
 
+
+    # GAME HISTORY (OPTIONAL)
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS live_category_queue (
-            queue_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        CREATE TABLE IF NOT EXISTS game_history (
+            history_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
-            category TEXT NOT NULL,
-            joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(user_id),
-            FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
+            game_type TEXT NOT NULL,
+            game_data TEXT,
+            final_score INTEGER,
+            partner_id INTEGER,
+            completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(session_id) REFERENCES game_sessions(session_id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+            FOREIGN KEY(partner_id) REFERENCES users(user_id) ON DELETE SET NULL
         )
     """)
 
@@ -316,19 +329,22 @@ def init_db():
     
     """)
 
-    conn.execute("""  CREATE TABLE IF NOT EXISTS games_2 (
-            game_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            game_type TEXT NOT NULL,       -- 'tictactoe', 'connect4', etc.
-            player_x_id INTEGER NOT NULL,
-            player_o_id INTEGER NOT NULL,
-            board_state TEXT,              -- Can be JSON or string depending on game
-            current_turn TEXT,
-            winner TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            finished_at DATETIME,
-            FOREIGN KEY(player_x_id) REFERENCES users(user_id) ON DELETE CASCADE,
-            FOREIGN KEY(player_o_id) REFERENCES users(user_id) ON DELETE CASCADE
-        ) """)
+    conn.execute("""  
+    CREATE TABLE IF NOT EXISTS games_2 (
+        game_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        game_type TEXT NOT NULL,       -- 'tictactoe', 'connect4', etc.
+        player_x_id INTEGER NOT NULL,
+        player_o_id INTEGER NOT NULL,
+        board_state TEXT,              -- Can be JSON or string depending on game
+        current_turn TEXT,
+        winner TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        finished_at DATETIME,
+        FOREIGN KEY(player_x_id) REFERENCES users(user_id) ON DELETE CASCADE,
+        FOREIGN KEY(player_o_id) REFERENCES users(user_id) ON DELETE CASCADE
+    ) 
+    """)
+    
     conn.execute("""
     CREATE TABLE IF NOT EXISTS game_invites (
         invite_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -341,20 +357,23 @@ def init_db():
         FOREIGN KEY(receiver_id) REFERENCES users(user_id) ON DELETE CASCADE
     )
     """)
+    
     conn.execute("""CREATE TABLE IF NOT EXISTS game_lobbies (
     lobby_id INTEGER PRIMARY KEY AUTOINCREMENT,
     creator_id INTEGER NOT NULL,
     game_type TEXT NOT NULL,
     status TEXT DEFAULT 'waiting', -- waiting | started
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)""")
+    )
+    """)
 
     conn.execute("""CREATE TABLE IF NOT EXISTS lobby_players (
     lobby_id INTEGER,
     user_id INTEGER,
     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (lobby_id, user_id)
-)""")
+    )
+    """)
 
 
     # group members table
@@ -724,6 +743,7 @@ def fetch_comments(conn, post_id, current_user_id=None):
     return conn.execute("""
         SELECT 
             c.comment_id, 
+            c.user_id,
             c.content, 
             c.created_at, 
             u.username,

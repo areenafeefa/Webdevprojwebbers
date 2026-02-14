@@ -1,17 +1,11 @@
-{% extends 'base.html' %}
-
-{% block head %}
 <title>Interests</title>
-{% endblock %}
-
-{% block body %}
-
 <a href="#" onclick="history.back()">← Back</a>
 
 <h2>What are some of your interests?</h2>
 
 <form action="/interests" method="POST" onsubmit="return validateInterests()">
 
+    <!--checkboxes-->
   <div class="interest-group">
     <label><input type="checkbox" name="interests[]" value="gardening"> Gardening</label>
     <label><input type="checkbox" name="interests[]" value="baking"> Baking</label>
@@ -37,37 +31,57 @@
   <button type="submit">Enter →</button>
 </form>
 
-  <!--JavaScript-->
+  <!--javascript-->
 <script>
 function validateInterests() {
+  // get the custom input text and remove extra spaces
   const input = document.getElementById("custom_interests").value.trim();
 
-  // Allow empty input (user can just select checkboxes)
+  // check if at least one checkbox is selected
+  const hasChecked = document.querySelectorAll(
+    'input[name="interests[]"]:checked'
+  ).length > 0;
+
+  // if nothing is selected AND no custom input is given
+  if (!hasChecked && !input) {
+    alert("Please select at least one interest or add your own.");
+    return false;
+  }
+
   if (!input) return true;
 
-  // Split input by commas, remove extra spaces, lowercase for uniformity
+  // allow multi-word interests like "bird watching", only block long space-separated inputs
+if (!input.includes(",") && input.split(/\s+/).length > 2) {
+  alert("Please separate multiple interests with commas.");
+  return false;
+}
+
+  // split custom input by commas
   const interests = input
     .split(",")
     .map(i => i.trim())
-    .filter(i => i !== "");
+    .filter(Boolean); 
 
-  // Check for duplicate interests
-  if (new Set(interests.map(i => i.toLowerCase())).size !== interests.length) {
+  // convert all interests to lowercase for fair comparison
+  const lowerInterests = interests.map(i => i.toLowerCase());
+
+  // check for duplicate interests
+  if (new Set(lowerInterests).size !== interests.length) {
     alert("You have entered duplicate interests.");
     return false;
   }
 
-  // Check for repeated words inside each interest
-  for (const interest of interests) {
-    const words = interest.split(/\s+/);
-    if (new Set(words.map(w => w.toLowerCase())).size !== words.length) {
-      alert(`"${interest}" contains repeated words.`);
+  // check for repeated words inside one interest
+  for (let i = 0; i < interests.length; i++) {
+    const words = interests[i]
+      .toLowerCase()
+      .split(/\s+/);
+
+    if (new Set(words).size !== words.length) {
+      alert(`"${interests[i]}" contains repeated words.`);
       return false;
     }
   }
-
   return true;
 }
 </script>
-
-{% endblock %}

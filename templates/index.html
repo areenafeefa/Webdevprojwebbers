@@ -75,17 +75,19 @@
                     </div>
                     {% endif %}
 
-                    <h4 class="card-title">{{ post['title'] | mention | safe }}</h4>
-
-                    <h6 class="card-subtitle mb-2 text-muted">
-                        {{ "Event Organiser: " if post['post_type'] == "event" else "@" }}
-                        <a href="{{ url_for('userprofile', username=post['username']) }}"
-                            class="text-decoration-none">
+                <h4 class="card-title pr-5">{{ post['title'] | mention | safe }}</h4>
+                
+                <h6 class="card-subtitle mb-2 text-muted">
+                    {% if post['post_type'] == 'daily_prompt' %}
+                        <span></span>
+                    {% else %}
+                        @<a href="{{ url_for('userprofile', username=post['username']) }}" class="text-decoration-none">
                             {{ post['username'] }}
-                        </a> • {{ post['created_at'] | timeago}}
-                    </h6>
-
-                    <hr>
+                        </a>
+                    {% endif %}
+                    | {{ post['created_at'] }}
+                </h6>
+                <hr>
 
                     <p class="card-text">
                         {{ post['content'] | mention | safe }}
