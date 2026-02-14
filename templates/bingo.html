@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block body %}
 <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='phoebe.css') }}">
+
 
 <div class="game-container">
     <a href="{{ url_for('game_start_page', game_type='bingo') }}" class="btn-back">

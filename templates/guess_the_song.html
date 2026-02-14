@@ -3,37 +3,270 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='phoebe.css') }}">
 
-<div class="game-container p-10 d-flex flex-column align-items-center justify-content-center" style="height: auto; min-height: 100%;">
+<style>
+    .game-container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .soundwave-container {
+        text-align: center;
+        padding: 40px 20px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 20px;
+        margin-bottom: 30px;
+    }
+
+    .soundwave {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 4px;
+        height: 80px;
+    }
+
+    .bar {
+        width: 6px;
+        background: white;
+        border-radius: 3px;
+        animation: wave 1s ease-in-out infinite;
+    }
+
+    .bar:nth-child(1) { animation-delay: 0s; }
+    .bar:nth-child(2) { animation-delay: 0.1s; }
+    .bar:nth-child(3) { animation-delay: 0.2s; }
+    .bar:nth-child(4) { animation-delay: 0.3s; }
+    .bar:nth-child(5) { animation-delay: 0.4s; }
+    .bar:nth-child(6) { animation-delay: 0.3s; }
+    .bar:nth-child(7) { animation-delay: 0.2s; }
+    .bar:nth-child(8) { animation-delay: 0.1s; }
+
+    @keyframes wave {
+        0%, 100% { height: 20px; }
+        50% { height: 80px; }
+    }
+
+    .options-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+        margin-bottom: 30px;
+    }
+
+    .option-btn {
+        padding: 20px;
+        font-size: 1.1rem;
+        font-weight: 600;
+        border-radius: 15px;
+        border: 2px solid #e9ecef;
+        background: white;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+
+    .option-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        border-color: #667eea;
+    }
+
+    .option-btn.correct {
+        background-color: #22c55e !important;
+        color: white !important;
+        border-color: #22c55e !important;
+    }
+
+    .option-btn.wrong {
+        background-color: #ef4444 !important;
+        color: white !important;
+        border-color: #ef4444 !important;
+    }
+
+    .option-btn:disabled {
+        cursor: not-allowed;
+        opacity: 0.7;
+    }
+
+    .scoreboard {
+        display: flex;
+        justify-content: space-around;
+        background: white;
+        padding: 20px;
+        border-radius: 15px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+
+    .score-item {
+        text-align: center;
+    }
+
+    .score-item label {
+        font-size: 0.9rem;
+        color: #64748b;
+        margin-bottom: 5px;
+    }
+
+    .score-item .score {
+        font-size: 2rem;
+        font-weight: bold;
+        color: #667eea;
+    }
+
+    .round-info {
+        text-align: center;
+        margin-bottom: 20px;
+    }
+
+    .timer {
+        font-size: 2.5rem;
+        font-weight: bold;
+        color: #ef4444;
+    }
+
+    .waiting-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+    }
+
+    .waiting-message {
+        background: white;
+        padding: 40px;
+        border-radius: 20px;
+        text-align: center;
+    }
+
+    /* Congrats Modal */
+    .congrats-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.8);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+    }
+
+    .congrats-content {
+        background: white;
+        padding: 40px;
+        border-radius: 20px;
+        max-width: 600px;
+        width: 90%;
+    }
+
+    .song-summary {
+        margin-top: 20px;
+        padding: 15px;
+        background: #f8f9fa;
+        border-radius: 10px;
+    }
+
+    .song-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 0;
+        border-bottom: 1px solid #e9ecef;
+    }
+
+    .song-item:last-child {
+        border-bottom: none;
+    }
+</style>
+
+<div class="game-container">
     
-    <div id="waiting-area" class="text-center">
-        <h3>Waiting for both players...</h3>
-        <div class="spinner-border text-primary mt-3"></div>
-        <p class="text-muted mt-2">Do not refresh.</p>
-    </div>
-
-    <div id="game-area" style="display:none; width: 100%; max-width: 600px;">
-        <div class="d-flex justify-content-between mb-3">
-            <h3>Round <span id="round-num">1</span>/5</h3>
-            <h3 class="text-danger" id="timer">10s</h3>
-        </div>
+    <div id="game-area" style="display:block;">
         
-        <div class="d-flex justify-content-between mb-4 p-2 bg-light rounded">
-            <span>You: <b id="my-score">0</b></span>
-            <span>Partner: <b id="p-score">0</b></span>
+        <div class="round-info">
+            <h3>Round <span id="round-num">1</span> / 5</h3>
+            <div class="timer" id="timer">10s</div>
         </div>
 
-        <div id="question-card" class="card p-4 shadow-sm text-center">
-            <div id="audio-container" class="mb-4">
-                </div>
-            <div id="options-container" class="d-grid gap-2">
-                </div>
+        <div class="scoreboard">
+            <div class="score-item">
+                <div class="label">You</div>
+                <div class="score" id="my-score">0</div>
+            </div>
+            <div class="score-item">
+                <div class="label">Partner</div>
+                <div class="score" id="partner-score">0</div>
+            </div>
         </div>
-        
-        <form action="{{ url_for('game_complete', game_type='song') }}" method="POST" id="finishForm">
-            <input type="hidden" name="session_id" value="{{ session_id }}">
-            <input type="hidden" name="score" id="finalScoreInput" value="0">
-        </form>
+
+        <div class="soundwave-container" id="soundwave-section">
+            <div class="soundwave">
+                <div class="bar"></div>
+                <div class="bar"></div>
+                <div class="bar"></div>
+                <div class="bar"></div>
+                <div class="bar"></div>
+                <div class="bar"></div>
+                <div class="bar"></div>
+                <div class="bar"></div>
+            </div>
+            <audio id="audioPlayer" style="display:none;" controls></audio>
+        </div>
+
+        <div class="options-grid" id="options-container">
+            </div>
+
     </div>
+
+    <div id="waiting-overlay" class="waiting-overlay" style="display:none;">
+        <div class="waiting-message">
+            <h4 class="mb-3">⏳ Waiting for partner...</h4>
+            <div class="spinner-border text-primary"></div>
+        </div>
+    </div>
+
+    <div id="congrats-modal" class="congrats-modal">
+        <div class="congrats-content">
+            <h2 class="text-center mb-4">🎉 Game Complete! 🎉</h2>
+            
+            <div class="scoreboard">
+                <div class="score-item">
+                    <div class="label">Your Score</div>
+                    <div class="score" id="final-my-score">0</div>
+                </div>
+                <div class="score-item">
+                    <div class="label">Partner's Score</div>
+                    <div class="score" id="final-partner-score">0</div>
+                </div>
+            </div>
+
+            <h5 class="mt-4 mb-3">Songs Played:</h5>
+            <div class="song-summary" id="song-summary">
+                </div>
+
+            <div class="mt-4 d-flex gap-2">
+                <a href="{{ url_for('find_a_friend_hub') }}" class="btn btn-secondary flex-fill">
+                    Back to Hub
+                </a>
+                <button class="btn btn-primary flex-fill" onclick="connectWithPartner()">
+                    <i class="fa fa-user-plus"></i> Connect
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <form action="{{ url_for('game_complete', game_type='song') }}" method="POST" id="finishForm">
+        <input type="hidden" name="session_id" value="{{ session_id }}">
+        <input type="hidden" name="score" id="finalScoreInput" value="0">
+    </form>
+
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
@@ -42,91 +275,207 @@
     const sessionId = {{ session_id }};
     const gameData = {{ game_data | tojson }}; 
     let currentRound = 0;
-    let score = 0;
-    
-    socket.emit('join_game', {session_id: sessionId});
+    let myScore = 0;
+    let partnerScore = 0;
+    let answeredThisRound = false;
+    let myAnswer = null;
+    let songHistory = [];
 
-    socket.on('start_song_game', () => {
-        document.getElementById('waiting-area').style.display = 'none';
-        document.getElementById('game-area').style.display = 'block';
+    // Join room for answer syncing, but don't wait for start signal
+    socket.emit('join_game', {
+        session_id: sessionId, 
+        game_type: 'guess_song'
+    });
+
+    // START GAME IMMEDIATELY
+    window.addEventListener('DOMContentLoaded', () => {
         loadRound();
     });
 
     function loadRound() {
         if(currentRound >= gameData.length) {
             // Game Over
-            document.getElementById('finalScoreInput').value = score;
-            document.getElementById('finishForm').submit();
+            showCongratulations();
             return;
         }
 
         let round = gameData[currentRound];
         document.getElementById('round-num').innerText = currentRound + 1;
+        answeredThisRound = false;
+        myAnswer = null;
+
+        // Setup Audio (if preview available, play it)
+        const audioPlayer = document.getElementById('audioPlayer');
+        if (round.preview) {
+            audioPlayer.src = round.preview;
+            audioPlayer.play().catch(e => console.log('Audio autoplay blocked'));
+        }
+
+        // Setup Options in 2x2 grid
+        const container = document.getElementById('options-container');
+        container.innerHTML = '';
         
-        // Setup Audio
-        let audioHtml = round.preview ? 
-            `<audio autoplay controls src="${round.preview}" class="w-100"></audio>` : 
-            `<div class="alert alert-warning">No Audio Preview - Guess by Title</div>`;
-        document.getElementById('audio-container').innerHTML = audioHtml;
-
-        // Setup Buttons
-        let html = '';
         round.options.forEach(opt => {
-            // Added class 'option-btn' and data-val for the feedback logic
-            html += `<button class="btn btn-outline-primary py-3 option-btn" 
-                             data-val="${opt}" 
-                             onclick="guess(this, '${opt}')">${opt}</button>`;
+            const btn = document.createElement('button');
+            btn.className = 'option-btn';
+            btn.textContent = opt;
+            btn.onclick = () => guess(btn, opt, round.answer);
+            container.appendChild(btn);
         });
-        document.getElementById('options-container').innerHTML = html;
 
-        // Start Timer
+        // Start Timer (10 seconds)
         let timeLeft = 10;
-        let timer = setInterval(() => {
+        const timerEl = document.getElementById('timer');
+        timerEl.innerText = "10s";
+
+        // Clear any existing timer
+        if (window.currentTimer) clearInterval(window.currentTimer);
+        
+        const timer = setInterval(() => {
             timeLeft--;
-            document.getElementById('timer').innerText = timeLeft + "s";
+            timerEl.innerText = timeLeft + "s";
+            
             if(timeLeft <= 0) {
                 clearInterval(timer);
-                nextRound();
+                if (!answeredThisRound) {
+                    // Auto-submit wrong answer
+                    submitAnswer('', false);
+                }
             }
         }, 1000);
         
-        // Save timer ID to clear it if user answers
         window.currentTimer = timer;
     }
 
-    function guess(btn, answer) {
-        clearInterval(window.currentTimer); // Stop timer
+    function guess(btn, answer, correctAnswer) {
+        if (answeredThisRound) return; // Already answered
         
-        let correct = gameData[currentRound].answer;
-        let allBtns = document.querySelectorAll('.option-btn');
+        clearInterval(window.currentTimer);
+        answeredThisRound = true;
+        myAnswer = answer;
+
+        const isCorrect = (answer === correctAnswer);
         
         // Disable all buttons
-        allBtns.forEach(b => b.disabled = true);
+        document.querySelectorAll('.option-btn').forEach(b => b.disabled = true);
 
-        if(answer === correct) {
-            // CORRECT: Green
-            score += 10;
-            document.getElementById('my-score').innerText = score;
-            btn.classList.replace('btn-outline-primary', 'btn-success');
+        // Show correct/wrong
+        if (isCorrect) {
+            btn.classList.add('correct');
         } else {
-            // WRONG: Red
-            btn.classList.replace('btn-outline-primary', 'btn-danger');
+            btn.classList.add('wrong');
             
-            // Highlight the correct one Green
-            allBtns.forEach(b => {
-                if(b.getAttribute('data-val') === correct) {
-                    b.classList.replace('btn-outline-primary', 'btn-success');
+            // Highlight correct answer
+            document.querySelectorAll('.option-btn').forEach(b => {
+                if (b.textContent === correctAnswer) {
+                    b.classList.add('correct');
                 }
             });
         }
-        
-        // Wait 1 second before next round so they see the color
-        setTimeout(nextRound, 1000);
+
+        // Submit answer to server
+        submitAnswer(answer, isCorrect);
     }
 
-    function nextRound() {
-        currentRound++;
-        loadRound();
+    function submitAnswer(answer, isCorrect) {
+        // Show waiting overlay
+        document.getElementById('waiting-overlay').style.display = 'flex';
+        
+        // Send to server
+        socket.emit('song_answer_submitted', {
+            session_id: sessionId,
+            round: currentRound,
+            answer: answer,
+            is_correct: isCorrect
+        });
+    }
+
+    // Waiting for partner
+    socket.on('waiting_for_partner', (data) => {
+        // Already showing overlay
+    });
+
+    // Both players answered
+    socket.on('both_answered', (data) => {
+        // Hide waiting overlay
+        document.getElementById('waiting-overlay').style.display = 'none';
+        
+        // Update scores
+        const answers = data.answers;
+        const userId = {{ session['user_id'] }};
+        
+        // Determine if user got it right
+        if (answers[userId] && answers[userId].correct) {
+            myScore += 10;
+        }
+        
+        // Update partner score
+        for (let uid in answers) {
+            if (uid != userId && answers[uid].correct) {
+                partnerScore += 10;
+            }
+        }
+        
+        document.getElementById('my-score').textContent = myScore;
+        document.getElementById('partner-score').textContent = partnerScore;
+        
+        // Save to history
+        songHistory.push({
+            song: gameData[currentRound].song,
+            artist: gameData[currentRound].artist,
+            correct: myAnswer === gameData[currentRound].answer
+        });
+        
+        // Move to next round after 2 seconds
+        setTimeout(() => {
+            currentRound++;
+            loadRound();
+        }, 2000);
+    });
+
+    function showCongratulations() {
+        // Update final scores
+        document.getElementById('final-my-score').textContent = myScore;
+        document.getElementById('final-partner-score').textContent = partnerScore;
+        
+        // Populate song summary
+        const summaryEl = document.getElementById('song-summary');
+        summaryEl.innerHTML = '';
+        
+        songHistory.forEach((song, idx) => {
+            const item = document.createElement('div');
+            item.className = 'song-item';
+            item.innerHTML = `
+                <div>
+                    <strong>${idx + 1}. ${song.song}</strong>
+                    <br>
+                    <small class="text-muted">${song.artist}</small>
+                </div>
+                <div>
+                    ${song.correct ? 
+                        '<span class="badge bg-success">✓ Correct</span>' : 
+                        '<span class="badge bg-danger">✗ Wrong</span>'}
+                </div>
+            `;
+            summaryEl.appendChild(item);
+        });
+        
+        // Show modal
+        document.getElementById('congrats-modal').style.display = 'flex';
+        
+        // Submit final score
+        document.getElementById('finalScoreInput').value = myScore;
+        
+        // Auto-submit (or can click button)
+        setTimeout(() => {
+            // document.getElementById('finishForm').submit();
+        }, 500);
+    }
+
+    function connectWithPartner() {
+        // Redirect to partner's profile or send friend request
+        window.location.href = '/profile/partner'; // Update with actual partner username
     }
 </script>
+
 {% endblock %}

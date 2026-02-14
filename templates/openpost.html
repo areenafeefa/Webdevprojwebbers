@@ -53,7 +53,13 @@
         <div class="card-body p-4">
             <h2 class="card-title fw-bold">{{ post['title'] | mention | safe }}</h2>
             <h6 class="text-muted mb-3">
-                By <a href="{{ url_for('userprofile', username=post['display_username']) }}" class="commenter-link">@{{ post['display_username'] }}</a> 
+                {% if post['post_type'] == 'daily_prompt' %}
+                    <span></span>
+                {% else %}
+                    By <a href="{{ url_for('userprofile', username=post['display_username']) }}" class="commenter-link">
+                        @{{ post['display_username'] }}
+                    </a> 
+                {% endif %}
                 | {{ post['created_at'] }}
             </h6>
             <hr>
@@ -130,16 +136,13 @@
     {% endif %}
 
     <div id="commentsList">
-        {% if comments %}
         {% for comment in comments %}
         <div class="card mb-2 shadow-sm comment-card border-0">
             <div class="card-body position-relative">
 
-
                 <div class="d-flex justify-content-between align-items-center">
                     <h6 class="card-subtitle text-muted mb-1 small">
-                        <a href="{{ url_for('userprofile', username=comment['username']) }}" class="commenter-link">@{{
-                            comment['username'] }}</a>
+                        <a href="{{ url_for('userprofile', username=comment['username']) }}" class="commenter-link">@{{ comment['username'] }}</a>
                         | {{ comment['created_at'] }}
                     </h6>
                     <div class="d-flex align-items-center">
@@ -167,9 +170,24 @@
                 <div class="card-text mb-2">{{ comment['content'] | mention | safe }}</div>
             </div>
         </div>
-        {% endfor %}
         {% else %}
+        {% if not locked_view %}
         <p class="text-muted italic px-2">No comments yet. Be the first to say something!</p>
+        {% endif %}
+        {% endfor %}
+
+        {% if locked_view %}
+        <div class="text-center p-4 mt-3" 
+            style="background-color: #fff5f5; border: 1px dashed #8B0000; border-radius: 12px;">
+            <div class="d-inline-block" style="color: #8B0000;">
+                <h5 class="mb-2 fw-bold">
+                    <i class="fa fa-lock me-2"></i>Comments Hidden
+                </h5>
+                <p class="small mb-0 opacity-75">
+                    Share your answer to this prompt to see what everyone else wrote!
+                </p>
+            </div>
+        </div>
         {% endif %}
     </div>
 </div>
