@@ -170,6 +170,8 @@
                                 <img src="{{ url_for('static', filename=post['image_path']) }}" class="post-img shadow-sm" alt="Post content">
                             </div>
                             {% endif %}
+            <a class="btn-outline-primary btn "  href = '{{ url_for('openpost', post_id=post['post_id']) }}' > View Post </a>
+
                         </div>
                     </div>
                 </div>
@@ -193,18 +195,26 @@
                                 </button>
                             </div>
                             {% endif %}
-                            <h4 class="card-title text-dark fw-bold">Reply to: {{ c['post_title'] | mention | safe }}</h4>
+        
+                            <h6 class="card-title">Reply to: {{ c['post_title'] | mention | safe }}</h6>
                             <h6 class="card-subtitle mb-2 text-muted small">
                                 <a href="{{ url_for('userprofile', username=profile['username']) }}" class="metadata-link">@{{ profile['username'] }}</a> | {{ c['created_at'] }}
                             </h6>
-                            <p class="card-text text-dark">{{ c['content'] | mention | safe }}</p>
+                            <p class="card-text text-dark ">{{ c['content'] | mention | safe }}</p>
+                            <a class="btn-outline-primary btn col-3"  href = '{{ url_for('openpost', post_id=c['post_id']) }}' > View Discussion </a>
+
                         </div>
+
                     </div>
+
                 </div>
+
                 {% endfor %}
+                
             {% else %}
                 <p class="text-muted px-2">No comments found.</p>
             {% endif %}
+
         </div>
     </div>
 </div>
