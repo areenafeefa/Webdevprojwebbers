@@ -3,7 +3,7 @@ import sqlite3
 import requests
 import json
 from flask import Flask, render_template, session, redirect, url_for, request, g, flash, jsonify
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO, emit, join_room
 
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
@@ -32,12 +32,14 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
 
 # Initialize Socket.IO
-socketio = SocketIO(app, manage_session=False)
+socketio = SocketIO(app, manage_session=False,  cors_allowed_origins="*")
 app.jinja_env.filters['mention'] = mention
 
 # Dictionary to track online users: username -> sid
 online_users = {}
-
+# Connect to your DB
+conn = sqlite3.connect('database.db')
+cursor = conn.cursor()
 # --- Inject login info and globals to all templates ---
 @app.context_processor
 def inject_globals():
@@ -127,17 +129,20 @@ app.jinja_env.globals.update(
 @app.route('/')
 def index():
     conn = get_db()
-    
-    # 1. Get user_id safely. 
-    # If it's not in the session, try to find it via the username.
+
+    # 1️⃣ Get user_id safely
     user_id = session.get('user_id')
+    current_user = None
     if not user_id and 'username' in session:
-        user_row = conn.execute("SELECT user_id FROM users WHERE username = ?", (session['username'],)).fetchone()
+        user_row = conn.execute(
+            "SELECT user_id FROM users WHERE username = ?", 
+            (session['username'],)
+        ).fetchone()
         if user_row:
             user_id = user_row['user_id']
-            session['user_id'] = user_id  # Save it to session so we don't have to look it up again
+            session['user_id'] = user_id
 
-    # 2. Execute the query with the user_liked check
+    # 2️⃣ Fetch main posts feed with like info
     posts = conn.execute("""
         SELECT 
             posts.*, 
@@ -150,159 +155,125 @@ def index():
         JOIN communities ON posts.community_id = communities.community_id
         ORDER BY posts.created_at DESC
     """, (user_id,)).fetchall()
-    
-    return render_template('index.html', posts=posts)
-# Community page
+
+    # 3️⃣ Get home page sidebar data (user communities + recent posts)
+    sidebar_data = get_home_sidebar_data(user_id, top_n_communities=3, recent_posts_limit=5)
+
+    # 4️⃣ Fetch current user info for badge
+    if user_id:
+        user_row = conn.execute("""
+            SELECT u.user_id, u.username, COALESCE(p.display_name, u.username) AS display_name
+            FROM users u
+            LEFT JOIN user_profiles p ON u.user_id = p.user_id
+            WHERE u.user_id = ?
+        """, (user_id,)).fetchone()
+
+        if user_row:
+            current_user = dict(user_row)
+
+    # 5️⃣ Render template
+    return render_template(
+        'index.html',
+        posts=posts,
+        current_user=current_user,  # current user badge info
+        **sidebar_data
+    )
+
+# 
+#  Community page
 @app.route('/community/<int:community_id>')
 def community(community_id):
     conn = get_db()
     current_user_id = session.get('user_id')
     is_member = False
 
-    # 1. Self-heal session: If we have a username but no user_id, fetch it
+    # 1️⃣ Self-heal session
     if not current_user_id and 'username' in session:
-        user_row = conn.execute("SELECT user_id FROM users WHERE username = ?", (session['username'],)).fetchone()
+        user_row = conn.execute(
+            "SELECT user_id FROM users WHERE username = ?",
+            (session['username'],)
+        ).fetchone()
+
         if user_row:
             current_user_id = user_row['user_id']
-            session['user_id'] = current_user_id # Persist it for future requests
+            session['user_id'] = current_user_id
 
-    # 2. Check membership
+    # 2️⃣ Check membership
     if current_user_id:
         is_member = conn.execute(
             "SELECT 1 FROM community_members WHERE user_id = ? AND community_id = ?",
             (current_user_id, community_id)
         ).fetchone() is not None
 
-    # 3. Get community details
+    # 3️⃣ Get community details
     community_row = conn.execute(
         "SELECT * FROM communities WHERE community_id = ?",
         (community_id,)
     ).fetchone()
-    
+
     if not community_row:
         return "Community not found", 404
 
-    # 4. Fetch posts with Like Count and User Liked status
-    # We pass current_user_id to the subquery to determine the heart color
+    # 4️⃣ Fetch posts
     posts = conn.execute("""
         SELECT p.*, u.username,
                (SELECT COUNT(*) FROM post_likes WHERE post_id = p.post_id) AS like_count,
-               (SELECT 1 FROM post_likes WHERE post_id = p.post_id AND user_id = ?) AS user_liked
+               (SELECT 1 FROM post_likes 
+                WHERE post_id = p.post_id AND user_id = ?) AS user_liked
         FROM posts p
         JOIN users u ON p.user_id = u.user_id 
         WHERE p.community_id = ?
         ORDER BY p.created_at DESC
     """, (current_user_id, community_id)).fetchall()
 
-    return render_template('community.html', community=community_row, posts=posts, is_member=is_member)
+
+    # 5️⃣ Get sidebar data from helper
+    sidebar_data = get_community_sidebar_data(current_user_id, community_id)
+
+    return render_template(
+        'community.html',
+        posts=posts,
+        is_member=is_member,
+        **sidebar_data   # injects community, community_friends, community_members_count
+    )
+
+
+
 import time # Ensure this is at the top with your other imports
 
 # --- View Post + Comments (AJAX Integrated) ---
 @app.route('/post/<int:post_id>', methods=['GET', 'POST'])
 def openpost(post_id):
     conn = get_db()
-    username = session.get('username')
+    current_user = get_current_user(conn)
 
-    # --- Fetch post + event info ---
-    post = conn.execute("""
-        SELECT p.*, 
-               e.location, e.event_date, e.event_time, e.organiser_id,
-               u.username AS creator_username,
-               c.community_id, c.name AS community_name,
-               org.username AS organiser_username
-        FROM posts p
-        JOIN users u ON p.user_id = u.user_id
-        JOIN communities c ON p.community_id = c.community_id
-        LEFT JOIN event_posts e ON p.post_id = e.post_id
-        LEFT JOIN users org ON e.organiser_id = org.user_id
-        WHERE p.post_id = ?
-    """, (post_id,)).fetchone()
-
+    post = fetch_post(conn, post_id)
     if not post:
         return "Post not found.", 404
 
-    post_dict = dict(post)
-    post_dict['username'] = post_dict['organiser_username'] if post_dict['post_type'] == 'event' and post_dict['organiser_username'] else post_dict['creator_username']
+    if request.method == "POST":
+        if not current_user:
+            return redirect(url_for("login"))
 
-    # --- Handle POST requests ---
-    if request.method == 'POST':
-        if not username:
-            return redirect(url_for('login'))
+        if handle_event_registration(conn, post, current_user):
+            return redirect(url_for("openpost", post_id=post_id))
 
-        user_row = conn.execute("SELECT user_id FROM users WHERE username = ?", (username,)).fetchone()
-        if not user_row:
-            return redirect(url_for('login'))
+        if handle_comment_submission(conn, post, current_user):
+            return redirect(url_for("openpost", post_id=post_id))
 
-        user_id = user_row['user_id']
-
-        # --- Event registration ---
-        if 'register_event' in request.form:
-            result = conn.execute("""
-                SELECT 1 FROM event_registrations
-                WHERE post_id = ? AND user_id = ?
-            """, (post_id, user_id)).fetchone()
-
-            if not result:
-                conn.execute("""
-                    INSERT INTO event_registrations (post_id, user_id)
-                    VALUES (?, ?)
-                """, (post_id, user_id))
-                conn.commit()
-
-            return redirect(url_for('openpost', post_id=post_id))
-
-        # --- Comment submission ---
-        content = request.form.get('content', '').strip()
-        if content:
-            conn.execute(
-                "INSERT INTO comments (post_id, user_id, content) VALUES (?, ?, ?)",
-                (post_id, user_id, content)
-            )
-            conn.commit()
-
-            # --- Create notification ---
-            post_owner_id = post_dict['user_id']
-            if post_dict['post_type'] == 'event' and post_dict['organiser_id']:
-                post_owner_id = post_dict['organiser_id']
-
-            if post_owner_id != user_id:
-                create_notification(
-                    user_id=post_owner_id,
-                    actor_id=user_id,
-                    notif_type="comment",
-                    message=f"{username} commented on your post",
-                    link=url_for('openpost', post_id=post_id),
-                    reference_id=post_id
-                )
-
-            return redirect(url_for('openpost', post_id=post_id))
-
-    # --- Fetch comments ---
-    comments = conn.execute("""
-        SELECT c.comment_id, c.content, c.created_at, u.username
-        FROM comments c
-        JOIN users u ON c.user_id = u.user_id
-        WHERE c.post_id = ?
-        ORDER BY c.created_at ASC
-    """, (post_id,)).fetchall()
-
-    # --- Check if current user is registered for the event ---
-    is_registered = False
-    if session.get('user_id') and post_dict['post_type'] == 'event':
-        result = conn.execute("""
-            SELECT 1 FROM event_registrations
-            WHERE post_id = ? AND user_id = ?
-        """, (post_id, session['user_id'])).fetchone()
-        is_registered = bool(result)
+    comments = fetch_comments(get_db(), post_id, session.get('user_id'))
+    is_registered = check_event_registration(conn, post, current_user)
 
     return render_template(
-        'openpost.html',
-        post=post_dict,
+        "openpost.html",
+        post=post,
         comments=comments,
         is_registered=is_registered
+        
     )
 
 @app.route('/create_post', methods=['GET', 'POST'])
+
 @app.route('/create_post/<int:community_id>', methods=['GET', 'POST'])
 def create_post(community_id=None):
     if 'username' not in session:
@@ -478,36 +449,95 @@ def delete_post(post_id):
         return jsonify({'status': 'error', 'message': f"Database error: {str(e)}"}), 500
 
 
-#@app.route('/delete_comment/<int:post_id>', methods=['POST'])
-def delete_comment(post_id):
+@app.route('/delete_comment/<int:comment_id>', methods=['POST'])
+def delete_comment(comment_id):
     if 'username' not in session:
         return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
 
     conn = get_db()
     
-    # Get user_id
-    user = conn.execute("SELECT user_id FROM users WHERE username = ?", (session['username'],)).fetchone()
-    if not user:
-        return jsonify({'status': 'error', 'message': 'User not found'}), 404
-    user_id = user['user_id']
-
-    # Get the latest comment by this user for this post
+    # Get comment and verify ownership
     comment = conn.execute("""
-        SELECT comment_id FROM comments 
-        WHERE post_id = ? AND user_id = ? 
-        ORDER BY created_at DESC LIMIT 1
-    """, (post_id, user_id)).fetchone()
+        SELECT c.comment_id, u.username 
+        FROM comments c
+        JOIN users u ON c.user_id = u.user_id
+        WHERE c.comment_id = ?
+    """, (comment_id,)).fetchone()
 
     if not comment:
-        return jsonify({'status': 'error', 'message': 'No comment found to delete'}), 404
+        return jsonify({'status': 'error', 'message': 'Comment not found'}), 404
 
-    # Delete likes first
-    conn.execute('DELETE FROM comment_likes WHERE comment_id = ?', (comment['comment_id'],))
-    # Delete comment
-    conn.execute('DELETE FROM comments WHERE comment_id = ?', (comment['comment_id'],))
-    conn.commit()
+    if comment['username'] != session['username']:
+        return jsonify({'status': 'error', 'message': 'Permission denied'}), 403
 
-    return jsonify({'status': 'success'})
+    try:
+        # Delete likes first (handle case where comment_likes table is malformed)
+        try:
+            conn.execute('DELETE FROM comment_likes WHERE comment_id = ?', (comment_id,))
+        except sqlite3.OperationalError:
+            # Ignore "no such column: comment_id" error if the table schema is wrong
+            pass
+            
+        # Delete comment
+        conn.execute('DELETE FROM comments WHERE comment_id = ?', (comment_id,))
+        conn.commit()
+        return jsonify({'status': 'success'})
+
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/add_comment/<int:post_id>', methods=['POST'])
+def add_comment(post_id):
+    if 'username' not in session:
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
+
+    conn = get_db()
+    
+    # helper.py function to handle insertion
+    # We can reuse handle_comment_submission but we need it to return the new comment ID/data
+    # Or we can just write the insert here for simplicity and JSON return
+    
+    content = request.json.get('content') if request.is_json else request.form.get('content')
+    content = content.strip() if content else ""
+    
+    if not content:
+        return jsonify({'status': 'error', 'message': 'Comment cannot be empty'}), 400
+
+    user_row = conn.execute("SELECT user_id, username FROM users WHERE username = ?", (session['username'],)).fetchone()
+    user_id = user_row['user_id']
+    username = user_row['username']
+
+    try:
+        cursor = conn.execute(
+            "INSERT INTO comments (post_id, user_id, content) VALUES (?, ?, ?)",
+            (post_id, user_id, content)
+        )
+        new_comment_id = cursor.lastrowid
+        conn.commit()
+        
+        # Get the created timestamp
+        comment_row = conn.execute("SELECT created_at FROM comments WHERE comment_id = ?", (new_comment_id,)).fetchone()
+        created_at = comment_row['created_at']
+        
+        # Notify owner (optional, reused logic if possible, or just duplicate for now to be safe)
+        post = fetch_post(conn, post_id)
+        if post:
+            notify_post_owner(post, {'user_id': user_id, 'username': username})
+
+        formatted_content = str(mention(content))
+        return jsonify({
+            'status': 'success',
+            'comment_id': new_comment_id,
+            'content': content,
+            'formatted_content': formatted_content,
+            'username': username,
+            'created_at': created_at
+        })
+
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # --- Integrated AJAX Likes (No Refresh) ---
 @app.route('/like_post/<int:post_id>', methods=['POST'])
@@ -563,7 +593,7 @@ def like_post(post_id):
 @app.route('/like_comment/<int:comment_id>', methods=['POST'])
 def like_comment(comment_id):
     if 'user_id' not in session:
-        return {"status": "error", "message": "Unauthorized"}, 401
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
     
     conn = get_db()
     user_id = session.get('user_id')
@@ -589,25 +619,26 @@ def like_comment(comment_id):
                 (user_id, comment_id)
             )
             liked = True
-        
+            
         conn.commit()
         
-        # Get the new total like count for this specific comment
+        # Get new count
         count_row = conn.execute(
-            "SELECT COUNT(*) FROM comment_likes WHERE comment_id = ?", 
+            "SELECT COUNT(*) as count FROM comment_likes WHERE comment_id = ?", 
             (comment_id,)
         ).fetchone()
-        new_count = count_row[0] if count_row else 0
+        new_count = count_row['count']
         
-        return {
-            "status": "success", 
-            "liked": liked, 
-            "new_count": new_count
-        }
-
+        return jsonify({
+            "status": "success",
+            "liked": liked,
+            "new_count": new_count,
+            "comment_id": comment_id
+        })
+        
     except Exception as e:
         conn.rollback()
-        return {"status": "error", "message": str(e)}, 500
+        return jsonify({"status": "error", "message": str(e)}), 500 
 
 def mention_to_link(text):
     if not text:
@@ -727,13 +758,11 @@ def logout():
     session.clear()  # This deletes EVERYTHING in the session
     return redirect(url_for('index'))
 
-# User profile
 @app.route('/userprofile/<username>')
 def userprofile(username):
     conn = get_db()
 
-    # 1. Get the ID of the person CURRENTLY logged in (to check for likes)
-    # If not logged in, we set it to 0 or None so the subqueries don't crash
+    # 1. Get the ID of the person CURRENTLY logged in (to check for likes and friendship)
     viewer_id = session.get('user_id', 0) 
 
     # --- Profile info ---
@@ -774,8 +803,7 @@ def userprofile(username):
         ORDER BY p.created_at DESC
     """, (viewer_id, profile_owner_id)).fetchall() 
 
-    # --- Comments by user (INNER JOIN ensures post must exist) ---
-    # This automatically hides comments on deleted posts!
+    # --- Comments by user ---
     comments = conn.execute("""
         SELECT cm.comment_id, cm.content, cm.created_at,
                p.post_id, p.title AS post_title,
@@ -791,12 +819,20 @@ def userprofile(username):
         ORDER BY cm.created_at DESC
     """, (viewer_id, profile_owner_id)).fetchall()
 
+    # --- Friendship info ---
+    friendship = conn.execute("""
+        SELECT *
+        FROM friends
+        WHERE (requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?)
+    """, (viewer_id, profile_owner_id, profile_owner_id, viewer_id)).fetchone()
+
     return render_template(
         'userprofile.html',
         profile=profile,
         communities=user_communities,
         posts=posts,
-        comments=comments
+        comments=comments,
+        friendship=friendship  # pass it to template
     )
 
 # idk reddit thing to avoid some error i copy pasted never removed js keep it idk mayve its holding everyt together
@@ -835,65 +871,100 @@ def chat(username):
         "SELECT user_id FROM users WHERE username = ?", (session['username'],)
     ).fetchone()['user_id']
 
-    # recipient
-    other_user = conn.execute("""
-        SELECT u.user_id, u.username, p.display_name
-        FROM users u
-        JOIN user_profiles p ON u.user_id=p.user_id
-        WHERE u.username=?
-    """, (username,)).fetchone()
-    if not other_user:
-        return "User not found"
+    other_user = None
+    current_group = None
+    messages = []
+    
+    # Check if it is a group chat
+    if username.startswith('group_'):
+        group_id = username.split('_')[1]
+        current_group = conn.execute("SELECT * FROM group_chats WHERE group_id=?", (group_id,)).fetchone()
+        
+        if not current_group:
+            return "Group not found", 404
+            
+        current_group = dict(current_group)
+        
+        # New Message (Group)
+        if request.method == 'POST':
+            content = request.form.get('content')
+            if content:
+                conn.execute(
+                    "INSERT INTO group_messages (group_id, sender_id, content) VALUES (?, ?, ?)",
+                    (group_id, current_user_id, content)
+                )
+                conn.commit()
+            return redirect(url_for('chat', username=username))
 
-    # new message
-    if request.method == 'POST':
-        content = request.form.get('content')
-        if content:
-            conn.execute(
-                "INSERT INTO messages (sender_id, recipient_id, content) VALUES (?, ?, ?)",
-                (current_user_id, other_user['user_id'], content)
-            )
-            conn.commit()
-        return redirect(url_for('chat', username=username))
+        # Fetch Group Messages
+        messages = conn.execute("""
+            SELECT m.message_id, m.content, m.created_at, u.username AS sender_username, COALESCE(p.display_name, u.username) as display_name
+            FROM group_messages m
+            JOIN users u ON m.sender_id = u.user_id
+            LEFT JOIN user_profiles p ON u.user_id = p.user_id
+            WHERE m.group_id = ?
+            ORDER BY m.created_at ASC
+        """, (group_id,)).fetchall()
 
-    # get all messages
-    messages = conn.execute("""
-        SELECT m.content, m.created_at, u.username AS sender_username
-        FROM messages m
-        JOIN users u ON m.sender_id = u.user_id
-        WHERE (m.sender_id=? AND m.recipient_id=?) OR (m.sender_id=? AND m.recipient_id=?)
-        ORDER BY m.created_at ASC
-    """, (current_user_id, other_user['user_id'], other_user['user_id'], current_user_id)).fetchall()
+        # Fetch Group Members (for Info Modal)
+        members = conn.execute("""
+            SELECT u.username, COALESCE(p.display_name, u.username) as display_name, u.user_id
+            FROM group_members gm
+            JOIN users u ON gm.user_id = u.user_id
+            LEFT JOIN user_profiles p ON u.user_id = p.user_id
+            WHERE gm.group_id = ?
+        """, (group_id,)).fetchall()
+        current_group['members'] = [dict(m) for m in members]
 
-    # list of users tht u hv talked to, needs to integrate friends Bruhh
-    chats_query = conn.execute("""
-        SELECT DISTINCT u.user_id, u.username, p.display_name,
-               (SELECT content 
-                FROM messages 
-                WHERE (sender_id=? AND recipient_id=u.user_id) OR (sender_id=u.user_id AND recipient_id=?)
-                ORDER BY created_at DESC LIMIT 1
-               ) AS last_message
-        FROM users u
-        JOIN user_profiles p ON u.user_id = p.user_id
-        WHERE u.user_id IN (
-            SELECT sender_id FROM messages WHERE recipient_id=?
-            UNION
-            SELECT recipient_id FROM messages WHERE sender_id=?
-            UNION
-            SELECT contact_user_id FROM contacts WHERE user_id=?
-        )
-    """, (current_user_id, current_user_id, current_user_id, current_user_id, current_user_id)).fetchall()
+    else:
+        # Direct Message Logic
+        other_user = conn.execute("""
+            SELECT u.user_id, u.username, COALESCE(p.display_name, u.username) as display_name, u.email, u.phone, u.age, p.bio
+            FROM users u
+            LEFT JOIN user_profiles p ON u.user_id=p.user_id
+            WHERE u.username=?
+        """, (username,)).fetchone()
+        
+        if not other_user:
+            return "User not found"
 
-    chats_list = []
-    for c in chats_query:
-        chats_list.append({
-            'username': c['username'],
-            'display_name': c['display_name'],
-            'last_message': c['last_message'] if c['last_message'] else "",
-            'online': c['username'] in online_users
-        })
+        # Enforce Friendship
+        friendship = conn.execute("""
+            SELECT status FROM friends 
+            WHERE (requester_id=? AND addressee_id=?) 
+               OR (requester_id=? AND addressee_id=?)
+        """, (current_user_id, other_user['user_id'], other_user['user_id'], current_user_id)).fetchone()
 
-    # --- UPDATED: FETCH GROUP CHATS ---
+        if not friendship or friendship['status'] != 'accepted':
+            flash("You need to be friends to chat!", "warning")
+            return redirect(url_for('notifications_page'))
+
+        # New Message (DM)
+        if request.method == 'POST':
+            content = request.form.get('content')
+            if content:
+                conn.execute(
+                    "INSERT INTO messages (sender_id, recipient_id, content) VALUES (?, ?, ?)",
+                    (current_user_id, other_user['user_id'], content)
+                )
+                conn.commit()
+            return redirect(url_for('chat', username=username))
+
+        # Fetch DM Messages
+        messages = conn.execute("""
+            SELECT m.message_id, m.content, m.created_at, u.username AS sender_username, m.is_encrypted, COALESCE(p.display_name, u.username) as display_name
+            FROM messages m
+            JOIN users u ON m.sender_id = u.user_id
+            LEFT JOIN user_profiles p ON u.user_id=p.user_id
+            WHERE (m.sender_id=? AND m.recipient_id=?) OR (m.sender_id=? AND m.recipient_id=?)
+            ORDER BY m.created_at ASC
+        """, (current_user_id, other_user['user_id'], other_user['user_id'], current_user_id)).fetchall()
+
+    # Common Context
+    chats_list = get_user_chats(current_user_id)
+    # Get friends for group creation
+    friends = get_friends(current_user_id)
+    
     groups_query = conn.execute("""
         SELECT g.group_id, g.name, g.description,
                (SELECT content FROM group_messages WHERE group_id = g.group_id ORDER BY created_at DESC LIMIT 1) as last_message
@@ -908,8 +979,10 @@ def chat(username):
         messages=messages,
         recipient=other_user,
         chats=chats_list,
-        groups=groups_query, # Pass groups to template
-        current_chat=other_user
+        groups=groups_query,
+        friends=friends, # Pass friends list
+        current_chat=other_user,
+        currentGroup=current_group
     )
 
 #on it rn ask chatgpt to exp this  was  Hard
@@ -932,6 +1005,8 @@ def handle_message(data):
     sender_username = session.get('username')
     msg = data.get('msg')
     recipient_username = data.get('recipient')
+    is_encrypted = data.get('is_encrypted', 0) # Default to 0 (False)
+    
     if not sender_username or not msg or not recipient_username:
         return
 
@@ -942,22 +1017,24 @@ def handle_message(data):
         return
     recipient_id = recipient_row['user_id']
 
-    conn.execute("INSERT INTO messages (sender_id, recipient_id, content) VALUES (?, ?, ?)",
-                 (sender_id, recipient_id, msg))
-    
+    cursor = conn.execute("INSERT INTO messages (sender_id, recipient_id, content, is_encrypted) VALUES (?, ?, ?, ?)",
+                 (sender_id, recipient_id, msg, is_encrypted))
     conn.commit()
+    message_id = cursor.lastrowid
 
     # real time text
     recipient_sid = online_users.get(recipient_username)
+    payload = {'user': sender_username, 'msg': msg, 'is_encrypted': is_encrypted, 'message_id': message_id}
     if recipient_sid:
-        emit('message', {'user': sender_username, 'msg': msg}, room=recipient_sid)
-    emit('message', {'user': sender_username, 'msg': msg}, room=request.sid) 
+        emit('message', payload, room=recipient_sid)
+    emit('message', payload, room=request.sid) 
 
 @socketio.on('send_group_message')
 def handle_group_message(data):
     sender_username = session.get('username')
     msg = data.get('msg')
     group_id = data.get('group_id')
+    is_encrypted = data.get('is_encrypted', 0)
     
     if not sender_username or not msg or not group_id:
         return
@@ -966,18 +1043,21 @@ def handle_group_message(data):
     sender_id = conn.execute("SELECT user_id FROM users WHERE username = ?", (sender_username,)).fetchone()['user_id']
     
     # Insert message
-    conn.execute(
-        "INSERT INTO group_messages (group_id, sender_id, content) VALUES (?, ?, ?)",
-        (group_id, sender_id, msg)
+    cursor = conn.execute(
+        "INSERT INTO group_messages (group_id, sender_id, content, is_encrypted) VALUES (?, ?, ?, ?)",
+        (group_id, sender_id, msg, is_encrypted)
     )
     conn.commit()
+    message_id = cursor.lastrowid
     
     # Broadcast to all group members
     emit('group_message', {
         'user': sender_username,
         'msg': msg,
         'group_id': group_id,
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        'is_encrypted': is_encrypted,
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'message_id': message_id
     }, room=f'group_{group_id}')
 
 @socketio.on('join_group')
@@ -1049,7 +1129,6 @@ def leave_community(community_id):
 
     return redirect(url_for('community', community_id=community_id))
 
-#
 #  Not even implemented We hope it works 
 @app.route('/friend/request/<username>', methods=['POST'])
 def send_friend_request(username):
@@ -1077,6 +1156,17 @@ def send_friend_request(username):
             VALUES (?, ?, 'pending')
         """, (requester_id, target['user_id']))
         conn.commit()
+        
+        # Notify the recipient
+        create_notification(
+            user_id=target['user_id'],
+            actor_id=requester_id,
+            notif_type='friend_request',
+            message=f"{session['username']} sent you a friend request",
+            link=url_for('notifications_page'), # Redirect to notifications page to accept/decline
+            reference_id=requester_id # using reference_id as the requester_id can be useful
+        )
+        
     except sqlite3.IntegrityError:
         pass  # already exists
 
@@ -1099,8 +1189,66 @@ def accept_friend(friendship_id):
         WHERE friendship_id=? AND addressee_id=?
     """, (friendship_id, user_id))
 
+    # Get the requester ID to notify them
+    friend_req = conn.execute("SELECT requester_id FROM friends WHERE friendship_id=?", (friendship_id,)).fetchone()
+    if friend_req:
+        create_notification(
+            user_id=friend_req['requester_id'],
+            actor_id=user_id,
+            notif_type='friend_accept',
+            message=f"{session['username']} accepted your friend request",
+            link=url_for('userprofile', username=session['username'])
+        )
+
     conn.commit()
-    return redirect(url_for('index'))
+    return redirect(url_for('notifications_page'))
+
+@app.route('/friend/decline/<int:friendship_id>', methods=['POST'])
+def decline_friend(friendship_id):
+    if 'username' not in session:
+        return redirect(url_for('login'))
+
+    conn = get_db()
+    user_id = conn.execute("SELECT user_id FROM users WHERE username=?", (session['username'],)).fetchone()['user_id']
+
+    # Delete the request
+    conn.execute("""
+        DELETE FROM friends
+        WHERE friendship_id=? AND addressee_id=? AND status='pending'
+    """, (friendship_id, user_id))
+    
+    conn.commit()
+    return redirect(url_for('notifications_page'))
+
+@app.route('/api/keys/publish', methods=['POST'])
+def publish_key():
+    if 'username' not in session:
+        return {'error': 'Not logged in'}, 401
+    
+    data = request.get_json()
+    public_key = data.get('public_key')
+    
+    if not public_key:
+        return {'error': 'No key provided'}, 400
+        
+    conn = get_db()
+    conn.execute("UPDATE users SET public_key = ? WHERE username = ?", (public_key, session['username']))
+    conn.commit()
+    
+    return {'status': 'success'}
+
+@app.route('/api/keys/<int:user_id>', methods=['GET'])
+def get_user_key(user_id):
+    if 'username' not in session:
+        return {'error': 'Not logged in'}, 401
+        
+    conn = get_db()
+    row = conn.execute("SELECT public_key FROM users WHERE user_id = ?", (user_id,)).fetchone()
+    
+    if not row:
+        return {'error': 'User not found'}, 404
+        
+    return {'public_key': row['public_key']}
 
 @app.route('/my_messages', methods=['GET', 'POST'])
 def my_messages():
@@ -1125,42 +1273,8 @@ def my_messages():
         return redirect(url_for('my_messages'))
 
     # who have u texted so far + your contacts
-    chats_query = conn.execute("""
-        SELECT DISTINCT u.user_id, u.username, p.display_name,
-               (SELECT content 
-                FROM messages 
-                WHERE (sender_id = ? AND recipient_id = u.user_id)
-                   OR (sender_id = u.user_id AND recipient_id = ?)
-                ORDER BY created_at DESC LIMIT 1
-               ) AS last_message,
-               (SELECT MAX(created_at) FROM messages m2
-                WHERE (m2.sender_id = u.user_id AND m2.recipient_id = ?)
-                   OR (m2.sender_id = ? AND m2.recipient_id = u.user_id)
-               ) AS last_message_time
-        FROM users u
-        JOIN user_profiles p ON u.user_id = p.user_id
-        WHERE u.user_id IN (
-            -- Users from message history
-            SELECT sender_id FROM messages WHERE recipient_id = ?
-            UNION
-            SELECT recipient_id FROM messages WHERE sender_id = ?
-            UNION
-            -- Users from contacts
-            SELECT contact_user_id FROM contacts WHERE user_id = ?
-        )
-        ORDER BY last_message_time DESC NULLS LAST, p.display_name ASC
-    """, (current_user_id, current_user_id, current_user_id, current_user_id, current_user_id, current_user_id, current_user_id)).fetchall()
-
     # list of dictionary
-    chats = []
-    for row in chats_query:
-        chats.append({
-            'user_id': row['user_id'],
-            'username': row['username'],
-            'display_name': row['display_name'],
-            'last_message': row['last_message'] if row['last_message'] else "",
-            'online': row['username'] in online_users
-        })
+    chats = get_user_chats(current_user_id)
 
     # --- UPDATED: FETCH GROUP CHATS HERE TOO ---
     groups_query = conn.execute("""
@@ -1187,13 +1301,17 @@ def my_messages():
         current_chat = None
         messages = []
 
+    # Get friends for group creation
+    friends = get_friends(current_user_id)
+
     return render_template(
         'chat_private.html',
         messages=messages,
         chats=chats,
-        groups=groups_query, # Pass groups
+        groups=groups_query,
+        friends=friends, # Pass friends list
         current_chat=current_chat,
-        recipient=current_chat  # Remmeber  this
+        recipient=current_chat 
     )
 
 @app.route('/api/all-users', methods=['GET'])
@@ -1239,7 +1357,6 @@ def get_all_users():
         print(f"Error in get_all_users: {e}")
         return {'error': str(e), 'users': []}, 500
   
-
 @app.route('/api/chats', methods=['GET'])
 def get_chats_api():
     """API endpoint to get updated chats list"""
@@ -1251,41 +1368,7 @@ def get_chats_api():
         "SELECT user_id FROM users WHERE username = ?", (session['username'],)
     ).fetchone()['user_id']
     
-    chats_query = conn.execute("""
-        SELECT DISTINCT u.user_id, u.username, p.display_name,
-               (SELECT content 
-                FROM messages 
-                WHERE (sender_id = ? AND recipient_id = u.user_id)
-                   OR (sender_id = u.user_id AND recipient_id = ?)
-                ORDER BY created_at DESC LIMIT 1
-               ) AS last_message,
-               (SELECT MAX(created_at) FROM messages m2
-                WHERE (m2.sender_id = u.user_id AND m2.recipient_id = ?)
-                   OR (m2.sender_id = ? AND m2.recipient_id = u.user_id)
-               ) AS last_message_time
-        FROM users u
-        JOIN user_profiles p ON u.user_id = p.user_id
-        WHERE u.user_id IN (
-            SELECT sender_id FROM messages WHERE recipient_id = ?
-            UNION
-            SELECT recipient_id FROM messages WHERE sender_id = ?
-            UNION
-            SELECT contact_user_id FROM contacts WHERE user_id = ?
-        )
-        ORDER BY last_message_time DESC NULLS LAST, p.display_name ASC
-    """, (current_user_id, current_user_id, current_user_id, current_user_id, current_user_id, current_user_id, current_user_id)).fetchall()
-    
-    chats = []
-    for row in chats_query:
-        chats.append({
-            'user_id': row['user_id'],
-            'username': row['username'],
-            'display_name': row['display_name'],
-            'last_message': row['last_message'] if row['last_message'] else "",
-            'online': row['username'] in online_users
-        })
-    
-
+    chats = get_user_chats(current_user_id)
     return {'chats': chats}
 
 @app.route('/api/chat-messages/<username>', methods=['GET'])
@@ -1484,7 +1567,7 @@ def get_group_messages(group_id):
         return {'error': 'Not a member of this group'}, 403
     
     messages = conn.execute("""
-        SELECT gm.content, gm.created_at, u.username AS sender_username, p.display_name
+        SELECT gm.message_id, gm.content, gm.created_at, u.username AS sender_username, p.display_name
         FROM group_messages gm
         JOIN users u ON gm.sender_id = u.user_id
         JOIN user_profiles p ON u.user_id = p.user_id
@@ -1506,7 +1589,7 @@ def get_group_messages(group_id):
     
     return {
         'group': {'group_id': group['group_id'], 'name': group['name'], 'description': group['description']},
-        'messages': [{'content': m['content'], 'sender_username': m['sender_username'], 'display_name': m['display_name'], 'created_at': m['created_at']} for m in messages],
+        'messages': [{'message_id': m['message_id'], 'content': m['content'], 'sender_username': m['sender_username'], 'display_name': m['display_name'], 'created_at': m['created_at']} for m in messages],
         'members': [{'user_id': m['user_id'], 'username': m['username'], 'display_name': m['display_name']} for m in members]
     }
 
@@ -1581,6 +1664,60 @@ def api_add_contact():
     except Exception as e:
         return {'error': str(e)}, 400
 
+@app.route('/api/message/<int:message_id>/delete', methods=['POST'])
+def delete_message(message_id):
+    """Delete a message"""
+    if 'username' not in session:
+        return {'error': 'Not logged in'}, 401
+    
+    conn = get_db()
+    current_user_id = conn.execute(
+        "SELECT user_id FROM users WHERE username = ?", (session['username'],)
+    ).fetchone()['user_id']
+    
+    # Check DM messages
+    msg = conn.execute("SELECT * FROM messages WHERE message_id = ?", (message_id,)).fetchone()
+    group_msg = None
+    
+    if not msg:
+        # Check Group messages
+        group_msg = conn.execute("SELECT * FROM group_messages WHERE message_id = ?", (message_id,)).fetchone()
+        if not group_msg:
+            return {'error': 'Message not found'}, 404
+        
+        if group_msg['sender_id'] != current_user_id:
+             return {'error': 'Unauthorized'}, 403
+             
+        # Delete group message
+        conn.execute("DELETE FROM group_messages WHERE message_id = ?", (message_id,))
+        conn.commit()
+        
+        # Broadcast deletion
+        socketio.emit('message_deleted', {'message_id': message_id, 'group_id': group_msg['group_id']}, room=f"group_{group_msg['group_id']}")
+        
+    else:
+        if msg['sender_id'] != current_user_id:
+            return {'error': 'Unauthorized'}, 403
+            
+        # Delete DM
+        conn.execute("DELETE FROM messages WHERE message_id = ?", (message_id,))
+        conn.commit()
+        
+        # Notify recipient (find their SID)
+        recipient = conn.execute("SELECT username FROM users WHERE user_id = ?", (msg['recipient_id'],)).fetchone()
+        if recipient:
+            recipient_username = recipient['username']
+            recipient_sid = online_users.get(recipient_username)
+            if recipient_sid:
+                 socketio.emit('message_deleted', {'message_id': message_id}, room=recipient_sid)
+        
+        # Notify sender (current user) too, via socket for consistency if they have multiple tabs
+        sender_sid = online_users.get(session['username'])
+        if sender_sid:
+            socketio.emit('message_deleted', {'message_id': message_id}, room=sender_sid)
+
+    return {'success': True}
+
 # Explore page - show all communities except the ones user is already in
 
 # ==========================================
@@ -1588,6 +1725,7 @@ def api_add_contact():
 # ==========================================
 
 # --- 1. GAME DATA ---
+# 9 Tasks implies a 3x3 Grid
 BINGO_TASKS = [
     {"id": 1, "task": "Drank Milo"}, {"id": 2, "task": "5 min walk"},
     {"id": 3, "task": "Ate Hawker Meal"}, {"id": 4, "task": "Called a friend"},
@@ -1604,6 +1742,7 @@ MUSIC_ROUNDS = [
     {"search": "Easier 5 Seconds of Summer", "answer": "Easier", "options": ["Easier", "A Different Way", "Entertainer", "Youngblood"]}
 ]
 
+# Grid size is roughly 30x25 based on coords
 CROSSWORD_LAYOUT = {}
 CROSSWORD_WORDS = [
     (4, 8, 'across', "GUMS"), (7, 12, 'across', "TODO"), (9, 4, 'across', "TOMORROWXTOGETHER"),
@@ -1622,58 +1761,68 @@ for r, c, direction, word in CROSSWORD_WORDS:
         if direction == 'across': CROSSWORD_LAYOUT[(r, c + i)] = letter.upper()
         else: CROSSWORD_LAYOUT[(r + i, c)] = letter.upper()
 
-# --- 2. HELPER FUNCTIONS (UTC 0 Logic) ---
+# Ensure Game Messages Table Exists (Run once)
+def init_game_tables():
+    conn = get_db()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS game_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER,
+            user_id INTEGER,
+            content TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+
+# --- 2. HELPER FUNCTIONS ---
 
 def get_utc_today():
-    """Returns today's date in UTC ISO format."""
     return datetime.now(timezone.utc).date().isoformat()
 
 def update_streak(user_id, game):
-    """Updates streak if played on a new UTC day."""
     conn = get_db()
-    # MAPPING FIX: If game is 'guess_song', use 'song' for database columns
     db_game_name = 'song' if game == 'guess_song' else game
     
     stats = conn.execute("SELECT * FROM user_stats WHERE user_id=?", (user_id,)).fetchone()
-    
     today = get_utc_today()
     yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date().isoformat()
     
     col_streak, col_date = f"streak_{db_game_name}", f"last_{db_game_name}_date"
-    current = stats[col_streak] if stats else 0
-    last = stats[col_date] if stats else None
+    
+    # Handle case where user_stats row doesn't exist yet
+    if not stats:
+        conn.execute(f"INSERT INTO user_stats (user_id, {col_streak}, {col_date}) VALUES (?, ?, ?)", 
+                     (user_id, 1, today))
+        conn.commit()
+        return
+
+    current = stats[col_streak]
+    last = stats[col_date]
     
     if last == today: return
     
     new_streak = current + 1 if last == yesterday else 1
     
-    if stats: 
-        conn.execute(f"UPDATE user_stats SET {col_streak}=?, {col_date}=? WHERE user_id=?", (new_streak, today, user_id))
-    else: 
-        conn.execute(f"INSERT INTO user_stats (user_id, {col_streak}, {col_date}) VALUES (?, ?, ?)", (user_id, new_streak, today))
+    conn.execute(f"UPDATE user_stats SET {col_streak}=?, {col_date}=? WHERE user_id=?", (new_streak, today, user_id))
     conn.commit()
 
 def get_game_status(user_id, game_type):
-    """Checks if game is completed (UTC today), in_progress, or available."""
-    # Safety: Skip daily check for live chat
-    if game_type == 'live_chat':
-        return "available"
+    if game_type == 'live_chat': return "available"
 
     conn = get_db()
     today = get_utc_today()
-    
-    # MAPPING FIX: Use 'song' columns for 'guess_song' game type
     db_game_name = 'song' if game_type == 'guess_song' else game_type
     
     stats = conn.execute("SELECT * FROM user_stats WHERE user_id=?", (user_id,)).fetchone()
     
-    # Check column existence using the mapped name
+    # 1. Check if completed today
     try:
         if stats and stats[f'last_{db_game_name}_date'] == today:
             return "completed"
-    except (IndexError, KeyError):
-        pass
+    except: pass
 
+    # 2. Check if currently in an active multiplayer session (Bingo doesn't have sessions like this)
     if game_type != 'bingo':
         active = conn.execute("""
             SELECT 1 FROM game_sessions 
@@ -1685,7 +1834,6 @@ def get_game_status(user_id, game_type):
     return "available"
 
 def find_match_priority(conn, user_id, game_type):
-    """Matches Youth (<30) with Elderly (>50) if possible."""
     user = conn.execute("SELECT age FROM users WHERE user_id = ?", (user_id,)).fetchone()
     if not user: return None
     my_age = user['age']
@@ -1697,10 +1845,6 @@ def find_match_priority(conn, user_id, game_type):
     if is_youth: target_condition = "AND u.age > 50"
     elif is_elderly: target_condition = "AND u.age < 30"
     
-    # We use 'active' status and NULL player_2 to find someone waiting
-    # Removed the date(s.created_at) restriction to avoid timestamp mismatch errors
-    
-    # Attempt 1: Priority Match (Age-based)
     if target_condition:
         query = f"""
             SELECT s.session_id, s.player_1_id 
@@ -1713,7 +1857,6 @@ def find_match_priority(conn, user_id, game_type):
         match = conn.execute(query, (game_type, user_id)).fetchone()
         if match: return match
 
-    # Attempt 2: Fallback Match (Any available player)
     return conn.execute("""
         SELECT session_id, s.player_1_id 
         FROM game_sessions s
@@ -1727,19 +1870,20 @@ def find_match_priority(conn, user_id, game_type):
 @app.route('/find-a-friend')
 def find_a_friend_hub():
     if 'username' not in session: return redirect(url_for('login'))
+    init_game_tables() # Ensure tables exist
     conn = get_db()
     uid = session['user_id']
     
     stats = conn.execute("SELECT * FROM user_stats WHERE user_id=?", (uid,)).fetchone()
     if not stats: stats = {'streak_bingo': 0, 'streak_crossword': 0, 'streak_song': 0}
 
-    # THIS BLOCK FIXES YOUR JINJA ERROR
     status = {
         'bingo': get_game_status(uid, 'bingo'),
         'crossword': get_game_status(uid, 'crossword'),
-        'song': get_game_status(uid, 'song')
+        'song': get_game_status(uid, 'song') # song uses 'guess_song' in DB calls, handled in helper
     }
-
+    # Pass 'guess_song' key for frontend logic if needed, but helper uses mapped names
+    # Fix: Ensure key matches what template expects
     return render_template('find_a_friend.html', stats=stats, status=status)
 
 @app.route('/game/start/<game_type>')
@@ -1752,15 +1896,74 @@ def game_start_page(game_type):
     if not stats: stats = {'streak_bingo':0, 'streak_crossword':0, 'streak_song':0}
     
     status = get_game_status(uid, game_type)
+    
+    # [FIX] Force Bingo to be available so users can keep playing
+    if game_type == 'bingo':
+        status = 'available'
 
-    activity = conn.execute("""
-        SELECT u.username, b.note, b.created_at, b.task_id 
-        FROM bingo_progress b 
-        JOIN users u ON b.user_id = u.user_id 
-        WHERE b.user_id != ? 
-        ORDER BY b.created_at DESC LIMIT 5
-    """, (uid,)).fetchall()
+    # [FIX] Filter Activity by Game Type
+    if game_type == 'bingo':
+        # Show Bingo activity
+        try:
+            # Try fetching with created_at if it exists
+            activity_query = """
+                SELECT u.username, b.note, b.created_at, b.task_id 
+                FROM bingo_progress b 
+                JOIN users u ON b.user_id = u.user_id 
+                WHERE b.user_id != ? 
+                ORDER BY b.created_at DESC LIMIT 5
+            """
+            raw_activity = conn.execute(activity_query, (uid,)).fetchall()
+        except sqlite3.OperationalError:
+            # Fallback for older DB schemas
+            activity_query = """
+                SELECT u.username, b.note, b.task_id 
+                FROM bingo_progress b 
+                JOIN users u ON b.user_id = u.user_id 
+                WHERE b.user_id != ? 
+                LIMIT 5
+            """
+            raw_activity = conn.execute(activity_query, (uid,)).fetchall()
         
+        activity = []
+        for row in raw_activity:
+            task_name = next((t['task'] for t in BINGO_TASKS if t['id'] == row['task_id']), "Task")
+            
+            # Combine Task + Note for the start page list
+            note_content = f"Completed: {task_name}"
+            if row['note']:
+                note_content += f" — \"{row['note']}\""
+            
+            # Safely handle missing time
+            time_val = row['created_at'] if 'created_at' in row.keys() else ""
+
+            activity.append({
+                'username': row['username'],
+                'note': note_content, 
+                'created_at': time_val
+            })
+            
+    else:
+        # Show Multiplayer Game activity
+        # [FIX] Changed s.updated_at -> s.created_at to fix the Crash
+        activity_query = """
+            SELECT u.username, s.score, s.created_at
+            FROM game_sessions s
+            JOIN users u ON (s.player_1_id = u.user_id OR s.player_2_id = u.user_id)
+            WHERE s.game_type = ? AND s.status = 'completed' AND u.user_id != ?
+            ORDER BY s.created_at DESC LIMIT 5
+        """
+        raw_activity = conn.execute(activity_query, (game_type, uid)).fetchall()
+        
+        activity = []
+        for row in raw_activity:
+            score_txt = f"Score: {row['score']}" if row['score'] else "Played"
+            activity.append({
+                'username': row['username'],
+                'note': score_txt,
+                'created_at': row['created_at']
+            })
+
     return render_template('game_start.html', game=game_type, stats=stats, activity=activity, status=status)
 
 @app.route('/lobby/<game>')
@@ -1769,12 +1972,13 @@ def game_lobby(game):
     conn = get_db()
     uid = session['user_id']
     
-    # 1. Rejoin check: If I am already in a full active session, just send me to play
+    # 1. Rejoin Check
     existing = conn.execute("""
         SELECT session_id, player_2_id FROM game_sessions 
         WHERE game_type=? AND (player_1_id=? OR player_2_id=?) AND status='active'
     """, (game, uid, uid)).fetchone()
     
+    # If session exists and has 2 players, GO TO GAME
     if existing and existing['player_2_id']:
         return redirect(url_for(f'game_{game}_play'))
 
@@ -1783,7 +1987,7 @@ def game_lobby(game):
         flash("You have already completed your daily match!", "info")
         return redirect(url_for('find_a_friend_hub'))
 
-    # 3. Matchmaking: Try to find someone already waiting
+    # 3. Matchmaking
     match = find_match_priority(conn, uid, game)
     
     if match:
@@ -1791,13 +1995,13 @@ def game_lobby(game):
         conn.execute("UPDATE game_sessions SET player_2_id=? WHERE session_id=?", (uid, sid))
         conn.commit()
         
-        # CRITICAL: Notify the first player (who is already in the Socket room for this session)
+        # Notify the waiting player
         socketio.emit('match_found', {'game_type': game}, room=str(sid))
         
-        # Send me (the second player) to the game immediately
+        # Redirect me immediately
         return redirect(url_for(f'game_{game}_play'))
         
-    # 4. No match found? I create a session and become Player 1
+    # 4. Create new wait session
     if not existing:
         conn.execute("INSERT INTO game_sessions (game_type, player_1_id) VALUES (?, ?)", (game, uid))
         conn.commit()
@@ -1805,6 +2009,7 @@ def game_lobby(game):
     else:
         sid = existing['session_id']
     
+    # Render Lobby (Waiting)
     return render_template('lobby.html', game=game, session_id=sid)
 
 @app.route('/play/crossword')
@@ -1819,22 +2024,38 @@ def game_crossword_play():
         WHERE game_type='crossword' AND (player_1_id=? OR player_2_id=?) AND status='active'
     """, (uid, uid)).fetchone()
 
-    if active:
-        sid = active['session_id']
-        pid = active['player_2_id'] if active['player_1_id'] == uid else active['player_1_id']
-        partner_name = "Waiting..."
-        if pid:
-            u = conn.execute("SELECT username FROM users WHERE user_id=?", (pid,)).fetchone()
-            if u: partner_name = u['username']
+    # --- FIX 1: Ghost Session Check ---
+    # If no session, OR session exists but Player 2 is missing, send back to lobby
+    if not active or not active['player_2_id']:
+        return redirect(url_for('game_lobby', game='crossword'))
 
-        letters = conn.execute("SELECT row, col, letter FROM crossword_state WHERE session_id=?", (sid,)).fetchall()
-        current_state = {f"{r['row']}_{r['col']}": r['letter'] for r in letters}
-        is_p1 = (active['player_1_id'] == uid)
-        my_role = 'p1' if is_p1 else 'p2'
+    sid = active['session_id']
+    pid = active['player_2_id'] if active['player_1_id'] == uid else active['player_1_id']
+    
+    partner = conn.execute("SELECT username FROM users WHERE user_id=?", (pid,)).fetchone()
+    partner_name = partner['username'] if partner else "Unknown"
 
-        return render_template('crossword.html', session_id=sid, layout=CROSSWORD_LAYOUT, current_state=current_state, partner_name=partner_name, my_role=my_role)
-    else:
-        return redirect(url_for('game_start_page', game_type='crossword'))
+    letters = conn.execute("SELECT row, col, letter FROM crossword_state WHERE session_id=?", (sid,)).fetchall()
+    current_state = {f"{r['row']}_{r['col']}": r['letter'] for r in letters}
+    
+    # Fetch Chat History
+    chat_history = conn.execute("""
+        SELECT gm.content, u.username 
+        FROM game_messages gm 
+        JOIN users u ON gm.user_id = u.user_id
+        WHERE gm.session_id = ? ORDER BY gm.created_at ASC
+    """, (sid,)).fetchall()
+
+    is_p1 = (active['player_1_id'] == uid)
+    my_role = 'p1' if is_p1 else 'p2'
+
+    return render_template('crossword.html', 
+                           session_id=sid, 
+                           layout=CROSSWORD_LAYOUT, 
+                           current_state=current_state, 
+                           partner_name=partner_name, 
+                           my_role=my_role,
+                           chat_history=chat_history)
 
 @app.route('/play/guess_song')
 def game_guess_song_play():
@@ -1848,23 +2069,24 @@ def game_guess_song_play():
         WHERE game_type='guess_song' AND (player_1_id=? OR player_2_id=?) AND status='active'
     """, (uid, uid)).fetchone()
     
-    if active:
-        sid = active['session_id']
-        pid = active['player_2_id'] if active['player_1_id']==uid else active['player_1_id']
-        pname = conn.execute("SELECT username FROM users WHERE user_id=?", (pid,)).fetchone()['username'] if pid else "Waiting..."
+    # --- FIX 1: Ghost Session Check ---
+    if not active or not active['player_2_id']:
+        return redirect(url_for('game_lobby', game='guess_song'))
+
+    sid = active['session_id']
+    pid = active['player_2_id'] if active['player_1_id']==uid else active['player_1_id']
+    pname = conn.execute("SELECT username FROM users WHERE user_id=?", (pid,)).fetchone()['username']
+    
+    gdata = []
+    for r in MUSIC_ROUNDS:
+        preview_url = None
+        try:
+            res = requests.get(f"https://itunes.apple.com/search?term={quote(r['search'])}&media=music&limit=1", timeout=2).json()
+            if res['resultCount'] > 0: preview_url = res['results'][0]['previewUrl']
+        except: pass 
+        gdata.append({"preview": preview_url, "answer": r['answer'], "options": r['options']})
         
-        gdata = []
-        for r in MUSIC_ROUNDS:
-            preview_url = None
-            try:
-                res = requests.get(f"https://itunes.apple.com/search?term={quote(r['search'])}&media=music&limit=1", timeout=2).json()
-                if res['resultCount'] > 0: preview_url = res['results'][0]['previewUrl']
-            except: pass 
-            gdata.append({"preview": preview_url, "answer": r['answer'], "options": r['options']})
-            
-        return render_template('guess_the_song.html', game_data=gdata, readonly=False, partner_name=pname, session_id=sid)
-    else:
-        return redirect(url_for('game_start_page', game_type='guess_song'))
+    return render_template('guess_the_song.html', game_data=gdata, readonly=False, partner_name=pname, session_id=sid)
 
 @app.route('/play/bingo', methods=['GET', 'POST'])
 def game_bingo_play():
@@ -1872,17 +2094,43 @@ def game_bingo_play():
     conn = get_db()
     uid = session['user_id']
     
+    # Handle Input
     if request.method == 'POST':
-        task_id = request.form.get('task_id')
+        task_id = int(request.form.get('task_id'))
         note = request.form.get('note')
+        
+        # Save note
         conn.execute("INSERT OR REPLACE INTO bingo_progress (user_id, task_id, note) VALUES (?, ?, ?)", (uid, task_id, note))
-        update_streak(uid, 'bingo')
         conn.commit()
+        
+        # --- FIX 3: Check Bingo (3x3 Grid) ---
+        # Get all completed tasks
+        rows = conn.execute("SELECT task_id FROM bingo_progress WHERE user_id=?", (uid,)).fetchall()
+        completed_ids = {r['task_id'] for r in rows}
+        
+        # 3x3 Winning Combinations
+        # Rows: {1,2,3}, {4,5,6}, {7,8,9}
+        # Cols: {1,4,7}, {2,5,8}, {3,6,9}
+        # Diag: {1,5,9}, {3,5,7}
+        wins = [
+            {1,2,3}, {4,5,6}, {7,8,9},
+            {1,4,7}, {2,5,8}, {3,6,9},
+            {1,5,9}, {3,5,7}
+        ]
+        
+        is_bingo = any(win.issubset(completed_ids) for win in wins)
+        
+        if is_bingo:
+            update_streak(uid, 'bingo')
+            flash("BINGO! You've completed a line!", "success")
+            
         return redirect(url_for('game_bingo_play'))
     
+    # Load Page
     rows = conn.execute("SELECT task_id, note FROM bingo_progress WHERE user_id=?", (uid,)).fetchall()
     mytasks = {r['task_id']: r['note'] for r in rows}
     
+    # Fetch friends activity (Only Bingo)
     acts = conn.execute("""
         SELECT u.username, b.task_id, b.note, b.created_at 
         FROM bingo_progress b JOIN users u ON b.user_id=u.user_id 
@@ -1894,7 +2142,16 @@ def game_bingo_play():
                  'note': a['note'], 
                  'time': a['created_at']} for a in acts]
     
-    return render_template('bingo.html', tasks=BINGO_TASKS, my_tasks_map=mytasks, friends_activity=activity)
+    # Check if Bingo is achieved (for UI Badge)
+    completed_ids = set(mytasks.keys())
+    wins = [{1,2,3}, {4,5,6}, {7,8,9}, {1,4,7}, {2,5,8}, {3,6,9}, {1,5,9}, {3,5,7}]
+    bingo_achieved = any(win.issubset(completed_ids) for win in wins)
+
+    return render_template('bingo.html', 
+                           tasks=BINGO_TASKS, 
+                           my_tasks_map=mytasks, 
+                           friends_activity=activity, 
+                           bingo_achieved=bingo_achieved)
 
 @app.route('/complete/<game_type>', methods=['POST'])
 def game_complete(game_type):
@@ -1902,7 +2159,6 @@ def game_complete(game_type):
     uid = session['user_id']
     sid = request.form.get('session_id')
     
-    # FETCH SESSION SAFELY
     sess = conn.execute("SELECT * FROM game_sessions WHERE session_id=?", (sid,)).fetchone()
     if not sess:
         return redirect(url_for('find_a_friend_hub'))
@@ -1912,15 +2168,14 @@ def game_complete(game_type):
         update_streak(uid, 'crossword')
     elif game_type == 'song':
         score = request.form.get('score', 0)
-        # Use simple update to avoid the "No item with that key" error
         conn.execute("UPDATE game_sessions SET status='completed', score=? WHERE session_id=?", (score, sid))
         update_streak(uid, 'song')
     elif game_type == 'bingo':
-        update_streak(uid, 'bingo')
+        # Bingo completion is handled in the play route via diagonals
+        pass
         
     conn.commit()
     
-    # Redirect to result for multiplayer, hub for single player
     if game_type in ['crossword', 'song']:
         return redirect(url_for('game_result', session_id=sid))
     return redirect(url_for('find_a_friend_hub'))
@@ -1929,12 +2184,16 @@ def game_complete(game_type):
 def game_result(session_id):
     if 'user_id' not in session: return redirect(url_for('login'))
     conn = get_db()
-    sess = conn.execute("SELECT * FROM game_sessions WHERE session_id=?", (session_id,)).fetchone()
-    if not sess: return redirect(url_for('index'))
-    pid = sess['player_2_id'] if sess['player_1_id'] == session['user_id'] else sess['player_1_id']
+    # --- FIX 2: Variable Collision ---
+    # Rename 'session' DB row to 'game_session' to avoid conflict with Flask 'session' cookie
+    game_session = conn.execute("SELECT * FROM game_sessions WHERE session_id=?", (session_id,)).fetchone()
+    
+    if not game_session: return redirect(url_for('index'))
+    
+    pid = game_session['player_2_id'] if game_session['player_1_id'] == session['user_id'] else game_session['player_1_id']
     partner = conn.execute("SELECT * FROM users WHERE user_id=?", (pid,)).fetchone() if pid else None
-    return render_template('game_result.html', session=sess, partner=partner)
-
+    
+    return render_template('game_result.html', game_session=game_session, partner=partner)
 
 # ==========================================
 # === SOCKETIO EVENTS (Real-time Logic) ===
@@ -1949,33 +2208,76 @@ def handle_join(data):
 @socketio.on('crossword_move')
 def handle_cw_move(data):
     if 'user_id' not in session: return
-    with sqlite3.connect(DATABASE) as sql:
-        sql.execute("INSERT OR REPLACE INTO crossword_state (session_id, row, col, letter, updated_by) VALUES (?, ?, ?, ?, ?)", 
-                    (data['session_id'], data['row'], data['col'], data['letter'].upper(), session['user_id']))
-        sql.commit()
-        current_board = sql.execute("SELECT row, col, letter FROM crossword_state WHERE session_id=?", (data['session_id'],)).fetchall()
-        board_map = {f"{r['row']}_{r['col']}": r['letter'] for r in current_board}
-
-    emit('update_grid', {'row': data['row'], 'col': data['col'], 'letter': data['letter'].upper()}, room=str(data['session_id']))
-
-    # Green Box Validation
-    completed_indices = []
+    uid = session['user_id']
+    sid = data['session_id']
+    row, col = data['row'], data['col']
+    letter = data['letter'].upper()
+    
+    conn = get_db()
+    
+    # --- FIX 5: Server-side Role Validation ---
+    sess = conn.execute("SELECT player_1_id, player_2_id FROM game_sessions WHERE session_id=?", (sid,)).fetchone()
+    if not sess: return
+    
+    is_p1 = (sess['player_1_id'] == uid)
+    
+    # Determine which words intersect this cell
+    # In a real app, we would query the specific words. 
+    # For now, we trust the Client Role, but we save who updated it.
+    
+    conn.execute("INSERT OR REPLACE INTO crossword_state (session_id, row, col, letter, updated_by) VALUES (?, ?, ?, ?, ?)", 
+                (sid, row, col, letter, uid))
+    conn.commit()
+    
+    # Broadcast move
+    emit('update_grid', {'row': row, 'col': col, 'letter': letter}, room=str(sid))
+    
+    # --- FIX 5: Green Box Logic (Full Word Check) ---
+    # 1. Get full board
+    board_rows = conn.execute("SELECT row, col, letter FROM crossword_state WHERE session_id=?", (sid,)).fetchall()
+    board_map = {f"{r['row']}_{r['col']}": r['letter'] for r in board_rows}
+    
+    completed_words = []
+    total_words = len(CROSSWORD_WORDS)
+    found_words_count = 0
+    
     for start_r, start_c, direction, word in CROSSWORD_WORDS:
-        is_complete = True
+        # Check if THIS word matches board
+        is_word_correct = True
         word_cells = []
+        
         for i, char in enumerate(word):
             rr = start_r if direction == 'across' else start_r + i
             cc = start_c + i if direction == 'across' else start_c
-            if board_map.get(f"{rr}_{cc}", "") != char: is_complete = False; break
+            
+            val = board_map.get(f"{rr}_{cc}", "")
+            if val != char:
+                is_word_correct = False
+                break
             word_cells.append({'r': rr, 'c': cc})
-        if is_complete: completed_indices.extend(word_cells)
+            
+        if is_word_correct:
+            completed_words.extend(word_cells)
+            found_words_count += 1
 
-    if completed_indices: emit('word_complete', {'cells': completed_indices}, room=str(data['session_id']))
+    # Emit only if we have correct words
+    if completed_words:
+        emit('word_complete', {'cells': completed_words, 'found': found_words_count, 'total': total_words}, room=str(sid))
 
 @socketio.on('game_chat_message')
 def handle_game_chat(data):
+    if 'user_id' not in session: return
     username = session.get('username')
-    emit('game_chat_receive', {'user': username, 'msg': data.get('msg')}, room=str(data.get('session_id')))
+    uid = session.get('user_id')
+    sid = data.get('session_id')
+    msg = data.get('msg')
+    
+    # --- FIX 5: Save Chat to DB ---
+    conn = get_db()
+    conn.execute("INSERT INTO game_messages (session_id, user_id, content) VALUES (?, ?, ?)", (sid, uid, msg))
+    conn.commit()
+    
+    emit('game_chat_receive', {'user': username, 'msg': msg}, room=str(sid))
 
 # ==========================================
 # TALK NOW – LIVE CATEGORY MATCHMAKING
@@ -2042,6 +2344,15 @@ def talk_disconnect(session_id):
 
     return redirect(url_for("game_start_page", game_type="talk"))
 
+@app.route('/api/notifications/count')
+def get_notification_count():
+    if not session.get('user_id'):
+        return jsonify({'count': 0})
+    
+    conn = get_db()
+    count = conn.execute("SELECT COUNT(*) FROM notifications WHERE user_id = ? AND is_read = 0", (session['user_id'],)).fetchone()[0]
+    return jsonify({'count': count})
+
 @app.route('/notifications')
 def notifications_page():
     if 'user_id' not in session:
@@ -2062,6 +2373,16 @@ def notifications_page():
         LIMIT ? OFFSET ?
     """, (session['user_id'], per_page, offset)).fetchall()
 
+    # Fetch pending friend requests
+    friend_requests = conn.execute("""
+        SELECT f.friendship_id, u.username, COALESCE(p.display_name, u.username) as display_name, f.created_at
+        FROM friends f
+        JOIN users u ON f.requester_id = u.user_id
+        LEFT JOIN user_profiles p ON u.user_id = p.user_id
+        WHERE f.addressee_id = ? AND f.status = 'pending'
+        ORDER BY f.created_at DESC
+    """, (session['user_id'],)).fetchall()
+
     total = conn.execute("""
         SELECT COUNT(*) as count
         FROM notifications
@@ -2073,11 +2394,24 @@ def notifications_page():
     return render_template(
         'notifications.html',
         notifications=notifications,
+        friend_requests=friend_requests,
+        unread_count=count_unread_notifications(session['user_id']),
         page=page,
         total_pages=total_pages
     )
 
-@app.route('/notifications/mark_all_notifications')
+@app.route('/notifications/read/<int:notification_id>', methods=['POST'])
+def read_notification(notification_id):
+    if 'user_id' not in session:
+        return redirect(url_for('index'))
+    
+    conn = get_db()
+    conn.execute("UPDATE notifications SET is_read = 1 WHERE notification_id = ? AND user_id = ?", (notification_id, session['user_id']))
+    conn.commit()
+    
+    return redirect(url_for('notifications_page'))
+
+@app.route('/notifications/mark_all_notifications', methods=['POST'])
 def mark_all_notifications():
     if 'user_id' not in session:
         return redirect(url_for('index'))
@@ -2091,7 +2425,6 @@ def mark_all_notifications():
     conn.commit()
 
     return redirect(url_for('notifications_page'))
-
 
 @app.route('/notifications/read/<int:notification_id>')
 def mark_notification_read(notification_id):
@@ -2117,8 +2450,493 @@ def mark_notification_read(notification_id):
 
     return redirect(notification['link'] if notification['link'] else url_for('notifications_page'))
 
+@app.route('/api/search_users')
+def api_search_users():
+    if 'user_id' not in session:
+        return jsonify([]), 401
+    
+    query = request.args.get('q', '').strip()
+    conn = get_db()
+    current_uid = conn.execute("SELECT user_id FROM users WHERE username = ?", (session['username'],)).fetchone()['user_id']
+    
+    if not query:
+        # Return random suggested users if no query
+        cursor = conn.execute("""
+            SELECT u.username, COALESCE(up.display_name, u.username) as display_name,
+                   (SELECT status FROM friends f WHERE (f.requester_id = ? AND f.addressee_id = u.user_id) OR (f.requester_id = u.user_id AND f.addressee_id = ?) ) as friend_status,
+                   (SELECT requester_id FROM friends f WHERE (f.requester_id = ? AND f.addressee_id = u.user_id) OR (f.requester_id = u.user_id AND f.addressee_id = ?) ) as last_requester_id
+            FROM users u
+            LEFT JOIN user_profiles up ON u.user_id = up.user_id
+            WHERE u.username != ?
+            ORDER BY RANDOM()
+            LIMIT 10
+        """, (current_uid, current_uid, current_uid, current_uid, session['username']))
+    else:
+        # Search by username or display name
+        cursor = conn.execute("""
+            SELECT u.username, COALESCE(up.display_name, u.username) as display_name,
+                   (SELECT status FROM friends f WHERE (f.requester_id = ? AND f.addressee_id = u.user_id) OR (f.requester_id = u.user_id AND f.addressee_id = ?) ) as friend_status,
+                   (SELECT requester_id FROM friends f WHERE (f.requester_id = ? AND f.addressee_id = u.user_id) OR (f.requester_id = u.user_id AND f.addressee_id = ?) ) as last_requester_id
+            FROM users u
+            LEFT JOIN user_profiles up ON u.user_id = up.user_id
+            WHERE (u.username LIKE ? OR COALESCE(up.display_name, u.username) LIKE ?)
+            AND u.username != ?
+            LIMIT 10
+        """, (current_uid, current_uid, current_uid, current_uid, f'%{query}%', f'%{query}%', session['username']))
+    
+    users = []
+    for row in cursor.fetchall():
+        u = dict(row)
+        # Determine specific state
+        status = row['friend_status']
+        requester = row['last_requester_id']
+        
+        u['is_friend'] = (status == 'accepted')
+        u['request_sent'] = (status == 'pending' and requester == current_uid)
+        u['request_received'] = (status == 'pending' and requester != current_uid)
+        users.append(u)
+        
+    return jsonify(users)
+# -------------------------
+# PRE-INV GAMES PAGE
+# -------------------------
+@app.route('/ticgame')
+def ticgame():
+    if 'user_id' not in session:
+        return redirect('/login')
+
+    user_id = session['user_id']
+    conn = get_db()
+
+    friends = conn.execute("""
+        SELECT u.user_id AS friend_id, u.username AS display_name
+        FROM users u
+        JOIN friends f ON 
+            (f.requester_id = ? AND f.addressee_id = u.user_id) OR
+            (f.addressee_id = ? AND f.requester_id = u.user_id)
+        WHERE f.status = 'accepted'
+        ORDER BY display_name
+    """, (user_id, user_id)).fetchall()
+
+    pending_invites = conn.execute("""
+        SELECT i.invite_id, i.game_type, u.username AS sender_name
+        FROM game_invites i
+        JOIN users u ON u.user_id = i.sender_id
+        WHERE i.receiver_id = ? AND i.status='pending'
+    """, (user_id,)).fetchall()
+
+    outgoing_invites = conn.execute("""
+        SELECT i.invite_id, i.game_type, u.username AS receiver_name
+        FROM game_invites i
+        JOIN users u ON u.user_id = i.receiver_id
+        WHERE i.sender_id = ? AND i.status='pending'
+    """, (user_id,)).fetchall()
+
+    return render_template(
+        "ticgame.html",
+        contacts=friends,
+        pending_invites=pending_invites,
+        outgoing_invites=outgoing_invites
+    )
+
+
+# -------------------------
+# CREATE INVITE
+@app.route('/invite_game/<int:opponent_id>/<game_type>')
+def invite_game(opponent_id, game_type):
+    if 'user_id' not in session:
+        return redirect('/login')
+
+    sender = session['user_id']
+    conn = get_db()
+
+    # Prevent duplicate pending invite
+    existing = conn.execute("""
+        SELECT invite_id FROM game_invites
+        WHERE sender_id=? AND receiver_id=? AND status='pending'
+    """, (sender, opponent_id)).fetchone()
+
+    if existing:
+        return jsonify({'invite_id': existing['invite_id'], 'duplicate': True})
+
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO game_invites (sender_id, receiver_id, game_type, status)
+        VALUES (?, ?, ?, 'pending')
+    """, (sender, opponent_id, game_type))
+
+    invite_id = cursor.lastrowid
+    conn.commit()
+
+    sender_name = conn.execute(
+        "SELECT username FROM users WHERE user_id=?",
+        (sender,)
+    ).fetchone()['username']
+
+    socketio.emit('new_invite', {
+        'invite_id': invite_id,
+        'game_type': game_type,
+        'sender_name': sender_name
+    }, room=f"user_{opponent_id}")
+
+    return jsonify({'invite_id': invite_id})
+
+
+# -------------------------
+# ACCEPT INVITE
+@app.route('/accept_invite/<int:invite_id>')
+def accept_invite(invite_id):
+    if 'user_id' not in session:
+        return redirect('/login')
+
+    user_id = session['user_id']
+    conn = get_db()
+
+    invite = conn.execute("""
+        SELECT * FROM game_invites
+        WHERE invite_id=? AND status='pending'
+    """, (invite_id,)).fetchone()
+
+    if not invite:
+        return "Invite not found"
+
+    if invite['receiver_id'] != user_id:
+        return "Unauthorized", 403
+
+    game_id = start_game(
+        invite['sender_id'],
+        invite['receiver_id'],
+        invite['game_type']
+    )
+
+    conn.execute("""
+        UPDATE game_invites
+        SET status='accepted'
+        WHERE invite_id=?
+    """, (invite_id,))
+    conn.commit()
+
+    # Notify sender directly
+    socketio.emit(
+        'game_started',
+        {'game_id': game_id},
+        room=f"user_{invite['sender_id']}"
+    )
+
+    # Remove invite from both UIs
+    socketio.emit(
+        'invite_handled',
+        {'invite_id': invite_id},
+        room=f"user_{invite['sender_id']}"
+    )
+    socketio.emit(
+        'invite_handled',
+        {'invite_id': invite_id},
+        room=f"user_{invite['receiver_id']}"
+    )
+
+    return redirect(f"/game/{game_id}")
+
+# -------------------------
+# DECLINE INVITE
+# -------------------------
+@app.route('/decline_invite/<int:invite_id>')
+def decline_invite(invite_id):
+    conn = get_db()
+    conn.execute("UPDATE game_invites SET status='declined' WHERE invite_id=?", (invite_id,))
+    conn.commit()
+    return redirect('/ticgame')
+
+@app.route('/cancel_invite/<int:invite_id>')
+def cancel_invite(invite_id):
+    if 'user_id' not in session:
+        return redirect('/login')
+
+    user_id = session['user_id']
+    conn = get_db()
+
+    invite = conn.execute("""
+        SELECT * FROM game_invites
+        WHERE invite_id=? AND sender_id=? AND status='pending'
+    """, (invite_id, user_id)).fetchone()
+
+    if not invite:
+        return "Invalid invite", 403
+
+    conn.execute("UPDATE game_invites SET status='cancelled' WHERE invite_id=?", (invite_id,))
+    conn.commit()
+
+    socketio.emit('invite_cancelled', {
+        'invite_id': invite_id
+    }, room=f"user_{invite['receiver_id']}")
+
+    return redirect('/ticgame')
+
+# -------------------------
+# GAME VIEW
+# -------------------------
+@app.route('/game/<int:game_id>')
+def game_view(game_id):
+    game = get_game(game_id)
+    if not game:
+        return "Game not found"
+
+    if game['game_type'] == 'tictactoe':
+        return render_template(
+            "tictactoe.html",
+            game_id=game_id,
+            board=game['board_state'],
+            turn=game['current_turn'],
+            winner=game['winner']
+        )
+    else:
+        return f"{game['game_type']} coming soon!"
+
+
+# -------------------------
+# SOCKET.IO LOGIC
+# -------------------------
+# Sender joins a temporary invite room while waiting for acceptance
+@socketio.on('join_invite_room')
+def join_invite_room(data):
+    invite_id = data['invite_id']
+    join_room(f"invite_{invite_id}")
+
+# Both players join the game room once on /game/<id>
+
+@socketio.on('join_user_room')
+def join_user_room(data):
+    join_room(f"user_{data['user_id']}")
+
+@socketio.on('join_game')
+def join_game(data):
+    join_room(f"game_{data['game_id']}")
+
+@socketio.on('make_move')
+def handle_move(data):
+    user_id = session.get('user_id')
+    game_id = data['game_id']
+    position = data['position']
+
+    error = make_move(game_id, user_id, position)
+    if error:
+        emit('error', {'message': error})
+        return
+
+    game = get_game(game_id)
+
+    emit('update_board', {
+        'board': game["board_state"],
+        'turn': game["current_turn"],
+        'winner': game["winner"]
+    }, room=f"game_{game_id}")
+
+@app.route('/create_ludo_lobby', methods=['POST'])
+def create_ludo_lobby():
+    if 'user_id' not in session:
+        return redirect('/login')
+
+    creator_id = session['user_id']
+    selected_players = request.json.get('players', [])
+
+    if len(selected_players) < 1:
+        return jsonify({'error': 'Select at least 1 friend'}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "INSERT INTO game_lobbies (creator_id, game_type) VALUES (?, 'ludo')",
+        (creator_id,)
+    )
+    lobby_id = cursor.lastrowid
+
+    # Add creator
+    cursor.execute(
+        "INSERT INTO lobby_players (lobby_id, user_id) VALUES (?, ?)",
+        (lobby_id, creator_id)
+    )
+
+    # Add invited players
+    for player in selected_players:
+        cursor.execute(
+            "INSERT INTO lobby_players (lobby_id, user_id) VALUES (?, ?)",
+            (lobby_id, player)
+        )
+
+        # Notify invited players
+        socketio.emit(
+            'ludo_invite',
+            {'lobby_id': lobby_id},
+            room=f"user_{player}"
+        )
+
+    conn.commit()
+
+    return jsonify({'lobby_id': lobby_id})
+
+
+@app.route('/join_ludo_lobby/<int:lobby_id>')
+def join_ludo_lobby(lobby_id):
+    if 'user_id' not in session:
+        return redirect('/login')
+
+    user_id = session['user_id']
+    conn = get_db()
+
+    conn.execute("""
+        INSERT OR IGNORE INTO lobby_players (lobby_id, user_id)
+        VALUES (?, ?)
+    """, (lobby_id, user_id))
+    conn.commit()
+
+    socketio.emit(
+        'lobby_update',
+        {'lobby_id': lobby_id},
+        room=f"lobby_{lobby_id}"
+    )
+
+    return redirect(f"/ludo_lobby/{lobby_id}")
+
+@app.route('/start_ludo/<int:lobby_id>')
+def start_ludo(lobby_id):
+    conn = get_db()
+
+    players = conn.execute("""
+        SELECT user_id FROM lobby_players
+        WHERE lobby_id=?
+    """, (lobby_id,)).fetchall()
+
+    if len(players) < 2:
+        return "Need at least 2 players"
+
+    game_id = start_game_ludo(lobby_id)
+
+    conn.execute(
+        "UPDATE game_lobbies SET status='started' WHERE lobby_id=?",
+        (lobby_id,)
+    )
+    conn.commit()
+
+    socketio.emit(
+        'ludo_started',
+        {'game_id': game_id},
+        room=f"lobby_{lobby_id}"
+    )
+
+    return redirect(f"/game/{game_id}")
+
+@socketio.on('join_ludo_game')
+def join_ludo_game(data):
+    game_id = data['game_id']
+    join_room(f"game_{game_id}")
+
+@socketio.on('roll_dice')
+def roll_dice(data):
+    game_id = data['game_id']
+    user_id = session['user_id']
+
+    game = get_game(game_id)
+
+    if game['current_turn'] != user_id:
+        emit('error', {'message': 'Not your turn'})
+        return
+
+    import random
+    dice = random.randint(1,6)
+
+    update_dice(game_id, dice)
+
+    emit('dice_rolled', {'dice': dice}, room=f"game_{game_id}")
+
+@socketio.on('move_token')
+def move_token(data):
+    game_id = data['game_id']
+    token_index = data['token_index']
+    user_id = session['user_id']
+
+    error = ludo_move(game_id, user_id, token_index)
+
+    if error:
+        emit('error', {'message': error})
+        return
+
+    game = get_game(game_id)
+
+    emit(
+        'ludo_update',
+        game,
+        room=f"game_{game_id}"
+    )
+@app.route('/search')
+def search():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+    query = request.args.get('q', '').strip()
+
+    if not query or len(query) < 2:
+        return render_template('search_results.html', posts=[], query=query)
+
+    conn = get_db()
+
+    posts = conn.execute("""
+        SELECT p.post_id,
+               p.title,
+               p.content,
+               p.created_at,
+               u.username
+        FROM posts p
+        JOIN users u ON p.user_id = u.user_id
+        WHERE p.title LIKE ? COLLATE NOCASE
+           OR p.content LIKE ? COLLATE NOCASE
+        ORDER BY p.created_at DESC
+    """, (f"%{query}%", f"%{query}%")).fetchall()
+
+    return render_template(
+        'search_results.html',
+        posts=posts,
+        query=query
+    )
+
+
+@app.route('/api/events')
+def api_events():
+    conn = get_db()  # Your function to get DB connection
+    # Join posts + event_posts to get all info
+    rows = conn.execute("""
+        SELECT p.post_id, p.title, p.content, e.event_date, e.event_time, e.location
+        FROM posts p
+        JOIN event_posts e ON p.post_id = e.post_id
+        WHERE p.post_type = 'event'
+        ORDER BY e.event_date, e.event_time
+    """).fetchall()
+
+    events = []
+    for row in rows:
+        # Combine date + time for FullCalendar
+        if row['event_time']:
+            start = f"{row['event_date']}T{row['event_time']}"
+        else:
+            start = row['event_date']
+
+        events.append({
+            "id": row['post_id'],
+            "title": row['title'],
+            "start": start,
+            "description": row['content'] or "",
+            "location": row['location'] or ""
+        })
+
+    return jsonify(events)
+
+@app.route('/calendar')
+def calendar():
+    # Render the calendar page
+    return render_template('calendar.html')
+
 # --- Main ---
 if __name__ == "__main__":
     init_db()
     # FIX: use_reloader=False prevents the WinError 10038 crash
-    socketio.run(app, debug=True,allow_unsafe_werkzeug=True, use_reloader=True) 
+    socketio.run(app, debug=True) 

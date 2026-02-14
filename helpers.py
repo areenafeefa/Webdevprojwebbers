@@ -67,12 +67,12 @@ def init_db():
     conn.execute("""
         CREATE TABLE IF NOT EXISTS comment_likes (
             like_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            post_id INTEGER NOT NULL,
+            comment_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(post_id) REFERENCES posts(post_id) ON DELETE CASCADE,
+            FOREIGN KEY(comment_id) REFERENCES comments(comment_id) ON DELETE CASCADE,
             FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-            UNIQUE(post_id, user_id)
+            UNIQUE(comment_id, user_id)
         )
     """)
 
@@ -136,6 +136,22 @@ def init_db():
             FOREIGN KEY(organiser_id) REFERENCES users(user_id) ON DELETE CASCADE
         )
     """)
+
+    # 3. SCHEMA MIGRATION FOR E2EE
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN public_key TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        conn.execute("ALTER TABLE messages ADD COLUMN is_encrypted INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        conn.execute("ALTER TABLE group_messages ADD COLUMN is_encrypted INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
 
 
     # comments table
@@ -284,6 +300,63 @@ def init_db():
         )
     """)
     
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS tictactoe_games (
+        game_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_x_id INTEGER NOT NULL,
+        player_o_id INTEGER NOT NULL,
+        board_state TEXT NOT NULL DEFAULT '---------',
+        current_turn TEXT NOT NULL DEFAULT 'X',
+        winner TEXT DEFAULT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        finished_at DATETIME,
+        FOREIGN KEY(player_x_id) REFERENCES users(user_id) ON DELETE CASCADE,
+        FOREIGN KEY(player_o_id) REFERENCES users(user_id) ON DELETE CASCADE
+    )
+    
+    """)
+
+    conn.execute("""  CREATE TABLE IF NOT EXISTS games_2 (
+            game_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            game_type TEXT NOT NULL,       -- 'tictactoe', 'connect4', etc.
+            player_x_id INTEGER NOT NULL,
+            player_o_id INTEGER NOT NULL,
+            board_state TEXT,              -- Can be JSON or string depending on game
+            current_turn TEXT,
+            winner TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            finished_at DATETIME,
+            FOREIGN KEY(player_x_id) REFERENCES users(user_id) ON DELETE CASCADE,
+            FOREIGN KEY(player_o_id) REFERENCES users(user_id) ON DELETE CASCADE
+        ) """)
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS game_invites (
+        invite_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender_id INTEGER NOT NULL,
+        receiver_id INTEGER NOT NULL,
+        game_type TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',   -- pending / accepted / declined
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(sender_id) REFERENCES users(user_id) ON DELETE CASCADE,
+        FOREIGN KEY(receiver_id) REFERENCES users(user_id) ON DELETE CASCADE
+    )
+    """)
+    conn.execute("""CREATE TABLE IF NOT EXISTS game_lobbies (
+    lobby_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    creator_id INTEGER NOT NULL,
+    game_type TEXT NOT NULL,
+    status TEXT DEFAULT 'waiting', -- waiting | started
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)""")
+
+    conn.execute("""CREATE TABLE IF NOT EXISTS lobby_players (
+    lobby_id INTEGER,
+    user_id INTEGER,
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (lobby_id, user_id)
+)""")
+
+
     # group members table
     conn.execute("""
         CREATE TABLE IF NOT EXISTS group_members (
@@ -296,7 +369,24 @@ def init_db():
             FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
         )
     """)
-    
+    # tic-tac-toe games table
+    conn.execute("""
+    CREATE TABLE IF NOT EXISTS tictactoe_games (
+        game_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        group_id INTEGER NOT NULL,
+        player_x_id INTEGER NOT NULL,
+        player_o_id INTEGER NOT NULL,
+        board_state TEXT DEFAULT '---------',  -- 9 chars, '-' = empty
+        current_turn TEXT DEFAULT 'X',         -- 'X' or 'O'
+        winner TEXT DEFAULT NULL,              -- 'X', 'O', 'Draw', or NULL
+        started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        finished_at DATETIME DEFAULT NULL,
+        FOREIGN KEY(group_id) REFERENCES group_chats(group_id) ON DELETE CASCADE,
+        FOREIGN KEY(player_x_id) REFERENCES users(user_id) ON DELETE CASCADE,
+        FOREIGN KEY(player_o_id) REFERENCES users(user_id) ON DELETE CASCADE
+    )
+    """)
+
     # group messages table
     conn.execute("""
         CREATE TABLE IF NOT EXISTS group_messages (
@@ -324,7 +414,7 @@ def init_db():
 
     
     conn.commit()
-    conn.close()
+    
 
 def mention(text):
     if not text:
@@ -407,13 +497,557 @@ def count_unread_notifications(user_id):
     return row['cnt']
 
 # Mark a single notification as read
-def mark_notification_read(notification_id):
+def mark_notification_read(notification_id, user_id):
     conn = get_db()
     conn.execute("UPDATE notifications SET is_read=1 WHERE notification_id=?", (notification_id,))
     conn.commit()
 
 # Mark all notifications for a user as read
-def mark_all_notifications_read(user_id):
-    conn = get_db()
     conn.execute("UPDATE notifications SET is_read=1 WHERE user_id=?", (user_id,))
     conn.commit()
+
+
+# --- E2EE Helpers ---
+def get_user_public_key(user_id):
+    conn = get_db()
+    row = conn.execute("SELECT public_key FROM users WHERE user_id=?", (user_id,)).fetchone()
+    return row['public_key'] if row else None
+
+# --- Friend Helpers ---
+def get_friend_requests(user_id):
+    conn = get_db()
+    requests = conn.execute("""
+        SELECT f.friendship_id, u.username, p.display_name, f.created_at
+        FROM friends f
+        JOIN users u ON f.requester_id = u.user_id
+        JOIN user_profiles p ON u.user_id = p.user_id
+        WHERE f.addressee_id = ? AND f.status = 'pending'
+        ORDER BY f.created_at DESC
+    """, (user_id,)).fetchall()
+    return [dict(r) for r in requests]
+
+def get_friends(user_id):
+    conn = get_db()
+    friends = conn.execute("""
+        SELECT u.user_id, u.username, COALESCE(p.display_name, u.username) as display_name
+        FROM users u
+        LEFT JOIN user_profiles p ON u.user_id = p.user_id
+        WHERE u.user_id IN (
+            SELECT requester_id FROM friends WHERE addressee_id = ? AND status='accepted'
+            UNION
+            SELECT addressee_id FROM friends WHERE requester_id = ? AND status='accepted'
+        )
+        ORDER BY display_name ASC
+    """, (user_id, user_id)).fetchall()
+    return [dict(f) for f in friends]
+
+def is_friend(user_id, other_id):
+    conn = get_db()
+    exists = conn.execute("""
+        SELECT 1 FROM friends 
+        WHERE ((requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?))
+        AND status='accepted'
+    """, (user_id, other_id, other_id, user_id)).fetchone()
+    return True if exists else False
+
+def get_user_chats(user_id):
+    conn = get_db()
+    # Complex query to get last message for both direct messages and friends
+    chats_query = conn.execute("""
+        SELECT DISTINCT u.user_id, u.username, COALESCE(p.display_name, u.username) as display_name, u.public_key,
+               (SELECT content 
+                FROM messages 
+                WHERE (sender_id = ? AND recipient_id = u.user_id)
+                   OR (sender_id = u.user_id AND recipient_id = ?)
+                ORDER BY created_at DESC LIMIT 1
+               ) AS last_message,
+               (SELECT is_encrypted
+                FROM messages 
+                WHERE (sender_id = ? AND recipient_id = u.user_id)
+                   OR (sender_id = u.user_id AND recipient_id = ?)
+                ORDER BY created_at DESC LIMIT 1
+               ) AS last_message_encrypted,
+               (SELECT MAX(created_at) FROM messages m2
+                WHERE (m2.sender_id = u.user_id AND m2.recipient_id = ?)
+                   OR (m2.sender_id = ? AND m2.recipient_id = u.user_id)
+               ) AS last_message_time
+        FROM users u
+        LEFT JOIN user_profiles p ON u.user_id = p.user_id
+
+        WHERE u.user_id IN (
+            -- STRICT MODE: Only Accepted Friends
+            SELECT requester_id FROM friends WHERE addressee_id = ? AND status='accepted'
+            UNION
+            SELECT addressee_id FROM friends WHERE requester_id = ? AND status='accepted'
+        )
+        ORDER BY last_message_time DESC NULLS LAST, display_name ASC
+    """, (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id)).fetchall()
+
+    chats = []
+    for row in chats_query:
+        chats.append({
+            'user_id': row['user_id'],
+            'username': row['username'],
+            'display_name': row['display_name'],
+            'public_key': row['public_key'],
+            'last_message': row['last_message'] if row['last_message'] else "",
+            'last_message_encrypted': row['last_message_encrypted'] if row['last_message_encrypted'] else 0,
+            'last_message_time': row['last_message_time']
+        })
+    return chats
+
+def get_current_user(conn):
+    username = session.get("username")
+    if not username:
+        return None
+
+    return conn.execute(
+        "SELECT user_id, username FROM users WHERE username = ?",
+        (username,)
+    ).fetchone()
+
+def fetch_post(conn, post_id):
+    row = conn.execute("""
+        SELECT p.*, 
+               e.location, e.event_date, e.event_time, e.organiser_id,
+               u.username AS creator_username,
+               c.community_id, c.name AS community_name,
+               org.username AS organiser_username
+        FROM posts p
+        JOIN users u ON p.user_id = u.user_id
+        JOIN communities c ON p.community_id = c.community_id
+        LEFT JOIN event_posts e ON p.post_id = e.post_id
+        LEFT JOIN users org ON e.organiser_id = org.user_id
+        WHERE p.post_id = ?
+    """, (post_id,)).fetchone()
+
+    if not row:
+        return None
+
+    post = dict(row)
+
+    # Resolve display username once
+    post["display_username"] = (
+        post["organiser_username"]
+        if post["post_type"] == "event" and post["organiser_username"]
+        else post["creator_username"]
+    )
+
+    return post
+
+
+
+def handle_event_registration(conn, post, user):
+    if post["post_type"] != "event":
+        return False
+
+    if "register_event" not in request.form:
+        return False
+
+    exists = conn.execute("""
+        SELECT 1 FROM event_registrations
+        WHERE post_id = ? AND user_id = ?
+    """, (post["post_id"], user["user_id"])).fetchone()
+
+    if not exists:
+        conn.execute("""
+            INSERT INTO event_registrations (post_id, user_id)
+            VALUES (?, ?)
+        """, (post["post_id"], user["user_id"]))
+        conn.commit()
+
+    return True
+
+def notify_post_owner(post, actor):
+    post_owner_id = (
+        post["organiser_id"]
+        if post["post_type"] == "event" and post["organiser_id"]
+        else post["user_id"]
+    )
+
+    if post_owner_id == actor["user_id"]:
+        return
+
+    create_notification(
+        user_id=post_owner_id,
+        actor_id=actor["user_id"],
+        notif_type="comment",
+        message=f"{actor['username']} commented on your post",
+        link=url_for("openpost", post_id=post["post_id"]),
+        reference_id=post["post_id"]
+    )
+
+
+def handle_comment_submission(conn, post, user):
+    content = request.form.get("content", "").strip()
+    if not content:
+        return False
+
+    conn.execute(
+        "INSERT INTO comments (post_id, user_id, content) VALUES (?, ?, ?)",
+        (post["post_id"], user["user_id"], content)
+    )
+    conn.commit()
+
+    notify_post_owner(post, user)
+
+    return True
+
+def check_event_registration(conn, post, user):
+    if not user or post["post_type"] != "event":
+        return False
+
+    result = conn.execute("""
+        SELECT 1 FROM event_registrations
+        WHERE post_id = ? AND user_id = ?
+    """, (post["post_id"], user["user_id"])).fetchone()
+
+    return bool(result)
+def fetch_comments(conn, post_id, current_user_id=None):
+    return conn.execute("""
+        SELECT 
+            c.comment_id, 
+            c.content, 
+            c.created_at, 
+            u.username,
+            (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.comment_id) as like_count,
+            (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.comment_id AND cl.user_id = ?) as user_has_liked
+        FROM comments c
+        JOIN users u ON c.user_id = u.user_id
+        WHERE c.post_id = ?
+        ORDER BY c.created_at DESC
+    """, (current_user_id, post_id)).fetchall()
+
+# --- START / GET GAME HELPERS ---
+
+
+def start_game(player1_id, player2_id, game_type='tictactoe'):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    if game_type == "tictactoe":
+
+        board_state = "---------"
+        current_turn = "X"
+
+        cursor.execute("""
+            INSERT INTO games_2
+            (game_type, player_x_id, player_o_id, board_state, current_turn, winner)
+            VALUES (?, ?, ?, ?, ?, NULL)
+        """, (
+            "tictactoe",
+            player1_id,
+            player2_id,
+            board_state,
+            current_turn
+        ))
+
+    elif game_type == "ludo":
+
+        import json
+
+        players = [player1_id, player2_id]
+
+        board_state = {
+            "players": players,
+            "positions": {
+                str(player1_id): [0, 0, 0, 0],
+                str(player2_id): [0, 0, 0, 0]
+            },
+            "dice": None,
+            "winner": None
+        }
+
+        cursor.execute("""
+            INSERT INTO games_2
+            (game_type, player_x_id, player_o_id, board_state, current_turn, winner)
+            VALUES (?, ?, ?, ?, ?, NULL)
+        """, (
+            "ludo",
+            player1_id,
+            player2_id,
+            json.dumps(board_state),
+            str(player1_id)  # turn = user_id
+        ))
+
+    else:
+        return None  # unsupported game type
+
+    conn.commit()
+    return cursor.lastrowid
+
+
+def get_game(game_id):
+    conn = get_db()
+    game = conn.execute(
+        "SELECT * FROM games_2 WHERE game_id=?",
+        (game_id,)
+    ).fetchone()
+
+    if not game:
+        return None
+
+    game = dict(game)
+
+    # If ludo, decode JSON board
+    if game["game_type"] == "ludo" and game["board_state"]:
+        import json
+        game["board_state"] = json.loads(game["board_state"])
+
+    return game
+
+def make_move(game_id, user_id, position):
+    game = get_game(game_id)
+    if not game:
+        return "Game not found"
+
+    if game['winner']:
+        return f"Game over! Winner: {game['winner']}"
+
+    # Determine user's symbol
+    symbol = 'X' if user_id == game['player_x_id'] else 'O'
+    if symbol != game['current_turn']:
+        return "Not your turn"
+
+    board = game['board_state']
+    if board[position] != '-':
+        return "Position taken"
+
+    board = board[:position] + symbol + board[position+1:]
+    
+    # Check for winner
+    combos = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]]
+    winner = None
+    for c in combos:
+        if board[c[0]] == board[c[1]] == board[c[2]] != '-':
+            winner = board[c[0]]
+            break
+    if '-' not in board and not winner:
+        winner = 'Draw'
+
+    next_turn = 'O' if game['current_turn'] == 'X' else 'X'
+
+    # Update DB
+    conn = get_db()
+    conn.execute("""
+        UPDATE games_2
+        SET board_state=?, current_turn=?, winner=?
+        WHERE game_id=?
+    """, (board, next_turn, winner, game_id))
+    conn.commit()
+
+    return None
+
+def start_game_ludo(lobby_id):
+    conn = get_db()
+
+    rows = conn.execute("""
+        SELECT user_id FROM lobby_players
+        WHERE lobby_id = ?
+        ORDER BY joined_at
+    """, (lobby_id,)).fetchall()
+
+    players = [row["user_id"] for row in rows]
+
+    if len(players) < 2:
+        return None
+
+    board_state = {
+        "players": players,
+        "positions": {
+            str(pid): [0, 0, 0, 0] for pid in players
+        },
+        "dice": None,
+        "winner": None
+    }
+
+    current_turn = str(players[0])
+
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO games_2
+        (game_type, player_x_id, player_o_id, board_state, current_turn, winner)
+        VALUES (?, ?, ?, ?, ?, NULL)
+    """, (
+        "ludo",
+        players[0],
+        players[1],  # placeholder for compatibility
+        json.dumps(board_state),
+        current_turn
+    ))
+
+    game_id = cursor.lastrowid
+    conn.commit()
+
+    return game_id
+
+def update_game_state(game_id, board_state, current_turn, winner=None):
+    conn = get_db()
+
+    import json
+
+    conn.execute("""
+        UPDATE games_2
+        SET board_state=?, current_turn=?, winner=?
+        WHERE game_id=?
+    """, (
+        json.dumps(board_state),
+        str(current_turn),
+        str(winner) if winner else None,
+        game_id
+    ))
+
+    conn.commit()
+
+def ludo_move(game_id, user_id, token_index):
+    game = get_game(game_id)
+    if not game:
+        return "Game not found"
+
+    board = game["board_state"]
+
+    if board["winner"]:
+        return "Game finished"
+
+    if str(game["current_turn"]) != str(user_id):
+        return "Not your turn"
+
+    if board["dice"] is None:
+        return "Roll dice first"
+
+    positions = board["positions"].get(str(user_id))
+    if not positions:
+        return "Invalid player"
+
+    if token_index < 0 or token_index > 3:
+        return "Invalid token"
+
+    dice = board["dice"]
+    positions[token_index] += dice
+
+    # Simple win rule
+    if positions[token_index] >= 57:
+        board["winner"] = user_id
+
+    board["dice"] = None
+
+    players = board["players"]
+    current_index = players.index(user_id)
+    next_index = (current_index + 1) % len(players)
+    next_turn = players[next_index]
+
+    update_game_state(game_id, board, next_turn, board["winner"])
+
+    return None
+
+def update_dice(game_id, dice):
+    game = get_game(game_id)
+    if not game:
+        return
+
+    board = game["board_state"]
+    board["dice"] = dice
+
+    update_game_state(
+        game_id,
+        board,
+        game["current_turn"],
+        board["winner"]
+    )
+
+def get_community_sidebar_data(user_id, community_id):
+    conn = get_db()
+
+    # 1️⃣ Get community
+    community = conn.execute(
+        "SELECT * FROM communities WHERE community_id = ?",
+        (community_id,)
+    ).fetchone()
+
+    # 2️⃣ Get community members
+    member_rows = conn.execute(
+        "SELECT user_id FROM community_members WHERE community_id = ?",
+        (community_id,)
+    ).fetchall()
+
+    community_member_ids = [row['user_id'] for row in member_rows]
+    community_members_count = len(community_member_ids)
+
+    # 3️⃣ Get user's friends
+    all_friends = get_friends(user_id) if user_id else []
+
+    # 4️⃣ Intersection: friends in community
+    community_friends = [
+        f for f in all_friends
+        if f['user_id'] in community_member_ids
+    ]
+
+    # 5️⃣ Get top 5 recent posts in community
+    recent_posts = conn.execute("""
+        SELECT post_id, title
+        FROM posts
+        WHERE community_id = ?
+        ORDER BY created_at DESC
+        LIMIT 5
+    """, (community_id,)).fetchall()
+
+
+    return {
+        "community": community,
+        "community_friends": community_friends,
+        "community_members_count": community_members_count,
+        "recent_posts": recent_posts
+    }
+
+def get_home_sidebar_data(user_id, top_n_communities=3, recent_posts_limit=5):
+    """
+    Returns the user's communities and top recent posts for home page sidebar.
+    """
+    if not user_id:
+        return {"user_communities": []}
+
+    conn = get_db()
+
+    # 1️⃣ Get communities the user is a member of
+    communities = conn.execute("""
+        SELECT c.community_id, c.name
+        FROM communities c
+        JOIN community_members cm ON c.community_id = cm.community_id
+        WHERE cm.user_id = ?
+    """, (user_id,)).fetchall()
+
+    user_communities = []
+
+    # 2️⃣ For each community, get top 5 recent posts
+    # Limit to top_n_communities by latest post date
+    community_posts = []
+
+    # First, get the latest post date per community
+    community_activity = conn.execute("""
+        SELECT c.community_id, c.name, MAX(p.created_at) AS latest_post
+        FROM communities c
+        JOIN community_members cm ON c.community_id = cm.community_id
+        LEFT JOIN posts p ON c.community_id = p.community_id
+        WHERE cm.user_id = ?
+        GROUP BY c.community_id
+        ORDER BY latest_post DESC
+        LIMIT ?
+    """, (user_id, top_n_communities)).fetchall()
+
+    for community in community_activity:
+        # Get top recent posts for this community
+        posts = conn.execute("""
+            SELECT post_id, title
+            FROM posts
+            WHERE community_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (community['community_id'], recent_posts_limit)).fetchall()
+
+        user_communities.append({
+            "community_id": community['community_id'],
+            "name": community['name'],
+            "recent_posts": posts
+        })
+
+    return {"user_communities": user_communities}

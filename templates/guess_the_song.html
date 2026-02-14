@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block body %}
 <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='phoebe.css') }}">
 
-<div class="game-container p-4 d-flex flex-column align-items-center justify-content-center" style="height: auto; min-height: 100%;">
+<div class="game-container p-10 d-flex flex-column align-items-center justify-content-center" style="height: auto; min-height: 100%;">
     
     <div id="waiting-area" class="text-center">
         <h3>Waiting for both players...</h3>
