@@ -457,295 +457,45 @@ def create_post(community_id=None):
         community_id=community_id
     )
 
-# ==========================================
-# DAILY PROMPTS SYSTEM - ADD AFTER create_post ROUTE
-# ==========================================
-
-@app.route('/daily_prompts')
-def daily_prompts_page():
-    """Main daily prompts page"""
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-    
-    conn = get_db()
-    today = date.today()
-    
-    # Get active daily prompt
-    daily_prompt = conn.execute("""
-        SELECT * FROM daily_prompts 
-        WHERE prompt_type = 'daily' 
-        AND start_date <= ? 
-        AND (end_date IS NULL OR end_date >= ?)
-        AND is_active = 1
-        ORDER BY start_date DESC LIMIT 1
-    """, (today, today)).fetchone()
-    
-    # Get active weekly prompt
-    weekly_prompt = conn.execute("""
-        SELECT * FROM daily_prompts 
-        WHERE prompt_type = 'weekly' 
-        AND start_date <= ? 
-        AND (end_date IS NULL OR end_date >= ?)
-        AND is_active = 1
-        ORDER BY start_date DESC LIMIT 1
-    """, (today, today)).fetchone()
-    
-    # Get user's responses
-    user_responses = {}
-    if daily_prompt:
-        user_resp = conn.execute("""
-            SELECT * FROM prompt_responses 
-            WHERE prompt_id = ? AND user_id = ?
-        """, (daily_prompt['prompt_id'], session['user_id'])).fetchone()
-        if user_resp:
-            user_responses['daily'] = dict(user_resp)
-    
-    if weekly_prompt:
-        user_resp = conn.execute("""
-            SELECT * FROM prompt_responses 
-            WHERE prompt_id = ? AND user_id = ?
-        """, (weekly_prompt['prompt_id'], session['user_id'])).fetchone()
-        if user_resp:
-            user_responses['weekly'] = dict(user_resp)
-    
-    return render_template('daily_prompts.html', 
-                         daily_prompt=daily_prompt,
-                         weekly_prompt=weekly_prompt,
-                         user_responses=user_responses)
-
-@app.route('/submit_prompt_response', methods=['POST'])
-def submit_prompt_response():
-    """Submit or edit response"""
-    if 'user_id' not in session:
-        return jsonify({'error': 'Not logged in'}), 401
-    
-    prompt_id = request.form.get('prompt_id')
-    content = request.form.get('content', '').strip()
-    
-    if not content:
-        return jsonify({'error': 'Response cannot be empty'}), 400
-    
-    conn = get_db()
-    
-    existing = conn.execute("""
-        SELECT response_id FROM prompt_responses 
-        WHERE prompt_id = ? AND user_id = ?
-    """, (prompt_id, session['user_id'])).fetchone()
-    
-    if existing:
-        conn.execute("""
-            UPDATE prompt_responses 
-            SET content = ?, updated_at = CURRENT_TIMESTAMP 
-            WHERE response_id = ?
-        """, (content, existing['response_id']))
-    else:
-        conn.execute("""
-            INSERT INTO prompt_responses (prompt_id, user_id, content) 
-            VALUES (?, ?, ?)
-        """, (prompt_id, session['user_id'], content))
-    
-    conn.commit()
-    return jsonify({'success': True})
-
-@app.route('/get_prompt_responses/<int:prompt_id>')
-def get_prompt_responses(prompt_id):
-    """Get responses (only after user answers)"""
-    if 'user_id' not in session:
-        return jsonify({'error': 'Not logged in'}), 401
-    
-    conn = get_db()
-    user_id = session['user_id']
-    
-    # Check if user answered
-    user_response = conn.execute("""
-        SELECT response_id FROM prompt_responses 
-        WHERE prompt_id = ? AND user_id = ?
-    """, (prompt_id, user_id)).fetchone()
-    
-    if not user_response:
-        return jsonify({'error': 'You must answer before viewing other responses'}), 403
-    
-    # Get friend responses
-    friend_responses = conn.execute("""
-        SELECT pr.*, u.username, COALESCE(up.display_name, u.username) as display_name,
-               (SELECT COUNT(*) FROM prompt_response_likes prl WHERE prl.response_id = pr.response_id) as like_count,
-               (SELECT 1 FROM prompt_response_likes prl WHERE prl.response_id = pr.response_id AND prl.user_id = ?) as user_liked
-        FROM prompt_responses pr
-        JOIN users u ON pr.user_id = u.user_id
-        LEFT JOIN user_profiles up ON u.user_id = up.user_id
-        WHERE pr.prompt_id = ? 
-        AND pr.user_id != ?
-        AND pr.user_id IN (
-            SELECT addressee_id FROM friends WHERE requester_id = ? AND status = 'accepted'
-            UNION
-            SELECT requester_id FROM friends WHERE addressee_id = ? AND status = 'accepted'
-        )
-        ORDER BY pr.created_at DESC
-    """, (user_id, prompt_id, user_id, user_id, user_id)).fetchall()
-    
-    # Get top responses
-    other_responses = conn.execute("""
-        SELECT pr.*, u.username, COALESCE(up.display_name, u.username) as display_name,
-               (SELECT COUNT(*) FROM prompt_response_likes prl WHERE prl.response_id = pr.response_id) as like_count,
-               (SELECT 1 FROM prompt_response_likes prl WHERE prl.response_id = pr.response_id AND prl.user_id = ?) as user_liked
-        FROM prompt_responses pr
-        JOIN users u ON pr.user_id = u.user_id
-        LEFT JOIN user_profiles up ON u.user_id = up.user_id
-        WHERE pr.prompt_id = ? AND pr.user_id != ?
-        AND pr.user_id NOT IN (
-            SELECT addressee_id FROM friends WHERE requester_id = ? AND status = 'accepted'
-            UNION
-            SELECT requester_id FROM friends WHERE addressee_id = ? AND status = 'accepted'
-        )
-        ORDER BY like_count DESC, pr.created_at DESC
-        LIMIT 10
-    """, (user_id, prompt_id, user_id, user_id, user_id)).fetchall()
-    
-    return jsonify({
-        'friend_responses': [dict(r) for r in friend_responses],
-        'other_responses': [dict(r) for r in other_responses]
-    })
-
-@app.route('/like_prompt_response', methods=['POST'])
-def like_prompt_response():
-    """Like/unlike response"""
-    if 'user_id' not in session:
-        return jsonify({'error': 'Not logged in'}), 401
-    
-    response_id = request.form.get('response_id')
-    conn = get_db()
-    
-    existing = conn.execute("""
-        SELECT like_id FROM prompt_response_likes 
-        WHERE response_id = ? AND user_id = ?
-    """, (response_id, session['user_id'])).fetchone()
-    
-    if existing:
-        conn.execute("DELETE FROM prompt_response_likes WHERE like_id = ?", (existing['like_id'],))
-        action = 'unliked'
-    else:
-        conn.execute("""
-            INSERT INTO prompt_response_likes (response_id, user_id) 
-            VALUES (?, ?)
-        """, (response_id, session['user_id']))
-        action = 'liked'
-    
-    conn.commit()
-    
-    like_count = conn.execute("""
-        SELECT COUNT(*) as count FROM prompt_response_likes 
-        WHERE response_id = ?
-    """, (response_id,)).fetchone()['count']
-    
-    return jsonify({'success': True, 'action': action, 'like_count': like_count})
-
-@app.route('/admin/create_prompt', methods=['GET', 'POST'])
-def admin_create_prompt():
-    """Admin route to create prompts"""
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-    
-    if request.method == 'POST':
-        question = request.form.get('question')
-        prompt_type = request.form.get('prompt_type')  # 'daily' or 'weekly'
-        
-        conn = get_db()
-        today = date.today()
-        
-        # Deactivate previous prompts of this type
-        conn.execute("""
-            UPDATE daily_prompts 
-            SET is_active = 0 
-            WHERE prompt_type = ?
-        """, (prompt_type,))
-        
-        # Calculate end date
-        if prompt_type == 'daily':
-            end_date = today + timedelta(days=1)
-        else:  # weekly
-            end_date = today + timedelta(days=7)
-        
-        # Create new prompt
-        conn.execute("""
-            INSERT INTO daily_prompts (question, prompt_type, start_date, end_date, is_active)
-            VALUES (?, ?, ?, ?, 1)
-        """, (question, prompt_type, today, end_date))
-        
-        conn.commit()
-        flash(f'{prompt_type.capitalize()} prompt created!', 'success')
-        return redirect(url_for('admin_create_prompt'))
-    
-    return render_template('admin_create_prompt.html')
-
-@app.route('/prompt_history')
-def prompt_history():
-    """View user's previous prompt responses"""
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-    
-    conn = get_db()
-    
-    history = conn.execute("""
-        SELECT dp.question, dp.prompt_type, pr.content, pr.created_at
-        FROM prompt_responses pr
-        JOIN daily_prompts dp ON pr.prompt_id = dp.prompt_id
-        WHERE pr.user_id = ?
-        ORDER BY pr.created_at DESC
-        LIMIT 20
-    """, (session['user_id'],)).fetchall()
-    
-    return render_template('prompt_history.html', history=history)
-
-
 # inidicating your interests
 @app.route("/interests", methods=["POST"])
-def interests():
-    # Make sure user is logged in
+def submit_interests():
+
     user_id = session.get("user_id")
     if not user_id:
         return redirect(url_for("login"))
 
-    # 1Get checkbox interests (supports multiple)
     checkbox_interests = [
         i.strip().lower()
         for i in request.form.getlist("interests[]")
         if i.strip()
     ]
 
-    # Get custom interests (comma-separated)
     custom_input = request.form.get("custom_interests", "").strip()
-    custom_interests = []
 
-    if custom_input:
-        custom_interests = [
-            i.strip().lower()
-            for i in custom_input.split(",")
-            if i.strip()
-        ]
+    custom_interests = [
+        i.strip().lower()
+        for i in custom_input.split(",")
+        if i.strip()
+    ] if custom_input else []
 
-    # Combine + remove duplicates
     all_interests = set(checkbox_interests + custom_interests)
 
-    # Save to database
     conn = get_db()
-
-    # save to database
     for interest in all_interests:
         try:
             conn.execute(
-                """
-                INSERT INTO user_interests (user_id, interest)
-                VALUES (?, ?)
-                """,
+                "INSERT INTO user_interests (user_id, interest) VALUES (?, ?)",
                 (user_id, interest)
             )
         except sqlite3.IntegrityError:
-            # Interest already exists for this user
             pass
 
     conn.commit()
+    conn.close()
 
-    return redirect(url_for("index"))
+    # redirect to main page
+    return redirect(url_for("base"))
 
 #delete posts
 @app.route('/delete_post/<int:post_id>', methods=['POST'])
@@ -1015,6 +765,9 @@ def mention_to_link(text):
 
 app.jinja_env.filters['mention'] = mention_to_link
 # Register
+from flask import Flask, render_template, request, redirect, url_for
+
+app = Flask(__name__)
 @app.route("/register", methods=["POST"])
 def register():
     # Extract form fields
@@ -1062,12 +815,12 @@ def register():
         session["user_id"] = user_id
 
         flash("Registration successful!", "success")
-        return redirect(url_for("index"))
+        return redirect(url_for("interests"))
 
     except sqlite3.IntegrityError:
         # Trigger modal with flash
         flash("Username or email already exists", "register_error")
-        return redirect(url_for("index"))
+        return redirect(url_for("interests"))
     
 # Login
 @app.route("/login", methods=["GET","POST"])
