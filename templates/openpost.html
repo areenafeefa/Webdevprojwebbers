@@ -43,11 +43,10 @@
 {% block body %}
 <div class="container mt-4">
     <div class="mb-3">
-        <a href="#" onclick="history.back()" class="text-decoration-none text-muted small">
+        <a href="{{ url_for('index') }}" class="text-decoration-none text-muted small">
             <i class="fa fa-arrow-left"></i> Back to Feed
         </a>
     </div>
-
 
     <!-- Post Card -->
     <div class="card mb-4 shadow-sm border-0">
@@ -137,58 +136,56 @@
     {% endif %}
 
     <div id="commentsList">
-        {% for comment in comments %}
-        <div class="card mb-2 shadow-sm comment-card border-0">
-            <div class="card-body position-relative">
+        {% if locked_view %}
+            <div id="lockedBanner" class="text-center p-4 mt-3" 
+                style="background-color: #fff5f5; border: 1px dashed #8B0000; border-radius: 12px;">
+                <div class="d-inline-block" style="color: #8B0000;">
+                    <h5 class="mb-2 fw-bold">
+                        <i class="fa fa-lock me-2"></i>Comments Hidden
+                    </h5>
+                    <p class="small mb-0 opacity-75">
+                        Share your answer to this prompt to see what everyone else wrote!
+                    </p>
+                </div>
+            </div>
 
-                <div class="d-flex justify-content-between align-items-center">
-                    <h6 class="card-subtitle text-muted mb-1 small">
-                        <a href="{{ url_for('userprofile', username=comment['username']) }}" class="commenter-link">@{{ comment['username'] }}</a>
-                        | {{ comment['created_at'] }}
-                    </h6>
-                    <div class="d-flex align-items-center">
-                        {% if session.get('username') == comment['username'] %}
-                        <button type="button" class="btn btn-sm text-danger border-0 p-0 me-2"
-                            onclick="deleteComment(this, {{ comment['comment_id'] }})">
-                            <i class="fa fa-trash"></i>
-                        </button>
-                        {% endif %}
+        {% else %}
+            {% for comment in comments %}
+            <div class="card mb-2 shadow-sm comment-card border-0">
+                <div class="card-body position-relative">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h6 class="card-subtitle text-muted mb-1 small">
+                            <a href="{{ url_for('userprofile', username=comment['username']) }}" class="commenter-link">@{{ comment['username'] }}</a>
+                            | {{ comment['created_at'] }}
+                        </h6>
+                        <div class="d-flex align-items-center">
+                            {% if session.get('username') == comment['username'] %}
+                            <button type="button" class="btn btn-sm text-danger border-0 p-0 me-2"
+                                onclick="deleteComment(this, {{ comment['comment_id'] }})">
+                                <i class="fa fa-trash"></i>
+                            </button>
+                            {% endif %}
 
-                        <button type="button"
-                            class="btn btn-sm border-0 p-0 d-flex align-items-center {{ 'text-danger' if comment['user_has_liked'] else 'text-muted' }}"
-                            onclick="likeComment(this, {{ comment['comment_id'] }})">
-                     <i class="fa fa-heart me-1
+                            <button type="button"
+                                class="btn btn-sm border-0 p-0 d-flex align-items-center {{ 'text-danger' if comment['user_has_liked'] else 'text-muted' }}"
+                                onclick="likeComment(this, {{ comment['comment_id'] }})">
+                         <i class="fa fa-heart me-1
                             {% if post['user_liked'] %}
                                 text-danger
                             {% else %}
                                 text-secondary
                             {% endif %}"></i>
-                            <span class="like-count small">{{ comment['like_count'] if comment['like_count'] > 0 else ''
+                                <span class="like-count small">{{ comment['like_count'] if comment['like_count'] > 0 else ''
                                 }}</span>
-                        </button>
+                            </button>
+                        </div>
                     </div>
+                    <div class="card-text mb-2">{{ comment['content'] | mention | safe }}</div>
                 </div>
-                <div class="card-text mb-2">{{ comment['content'] | mention | safe }}</div>
             </div>
-        </div>
-        {% else %}
-        {% if not locked_view %}
-        <p class="text-muted italic px-2">No comments yet. Be the first to say something!</p>
-        {% endif %}
-        {% endfor %}
-
-        {% if locked_view %}
-        <div class="text-center p-4 mt-3" 
-            style="background-color: #fff5f5; border: 1px dashed #8B0000; border-radius: 12px;">
-            <div class="d-inline-block" style="color: #8B0000;">
-                <h5 class="mb-2 fw-bold">
-                    <i class="fa fa-lock me-2"></i>Comments Hidden
-                </h5>
-                <p class="small mb-0 opacity-75">
-                    Share your answer to this prompt to see what everyone else wrote!
-                </p>
-            </div>
-        </div>
+            {% else %}
+                <p class="text-muted italic px-2">No comments yet. Be the first to say something!</p>
+            {% endfor %}
         {% endif %}
     </div>
 </div>
@@ -258,7 +255,7 @@
             });
     }
 
-    function submitComment(event) {
+function submitComment(event) {
         event.preventDefault();
         const form = event.target;
         const content = form.content.value;
@@ -282,7 +279,22 @@
                 if (data.status === 'success') {
                     form.reset();
 
+                    // --- START FIX: DAILY PROMPT HANDLING ---
+                    // Check if the "Locked" banner is currently on screen
+                    const lockedBanner = document.getElementById('lockedBanner');
+                    
+                    if (lockedBanner) {
+                        // If locked, we MUST reload. The server previously sent an empty list 
+                        // to hide spoilers. We need to refresh so the server sees we commented 
+                        // and sends back the FULL list of comments.
+                        window.location.reload(); 
+                        return; // Stop execution here since page is reloading
+                    }
+                    // --- END FIX ---
+
+                    // --- LOGIC FOR NORMAL POSTS (Smooth Insert) ---
                     const commentsList = document.getElementById('commentsList');
+                    
                     const noCommentsMsg = commentsList.querySelector('.text-muted.italic');
                     if (noCommentsMsg) {
                         noCommentsMsg.remove();

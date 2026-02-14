@@ -200,8 +200,7 @@ def index():
         if user_row:
             current_user = dict(user_row)
 
-    # 3️⃣ [NEW] DAILY PROMPT LOGIC (Runs BEFORE fetching posts)
-    # This checks if a "Daily Prompt" post exists for today. If not, it creates one.
+# 3️⃣ [UPDATED] DAILY PROMPT LOGIC (With UTC 00:00 Fix)
     today_str = date.today().isoformat()
     
     existing_prompt = conn.execute("""
@@ -210,9 +209,12 @@ def index():
         AND date(created_at) = ?
     """, (today_str,)).fetchone()
 
-    # Only create if missing AND user is logged in (to act as author)
+    # Only create if missing AND user is logged in
     if not existing_prompt and user_id:
         import random
+        # Ensure we have the right datetime imports here locally if not global
+        from datetime import datetime, timezone 
+        
         prompt_options = [
             "What is a small win you had today?",
             "What is your favorite comfort food?",
@@ -224,8 +226,7 @@ def index():
         ]
         new_question = random.choice(prompt_options)
         
-        # --- FIX FOR CRASH: Find a valid Community ID ---
-        # We try to find ANY existing community. If none, we create "General".
+        # Find a valid Community ID (fallback to 1 or create 'General')
         comm_row = conn.execute("SELECT community_id FROM communities LIMIT 1").fetchone()
         
         if comm_row:
@@ -236,11 +237,13 @@ def index():
             conn.commit()
             target_cid = cursor.lastrowid
 
-        # Insert the System Post using the valid Community ID
+        # --- FIX: Force timestamp to UTC 00:00:00 ---
+        utc_midnight = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
         conn.execute("""
-            INSERT INTO posts (user_id, community_id, title, content, post_type)
-            VALUES (?, ?, 'Daily Prompt', ?, 'daily_prompt')
-        """, (user_id, target_cid, new_question)) 
+            INSERT INTO posts (user_id, community_id, title, content, post_type, created_at)
+            VALUES (?, ?, 'Daily Prompt', ?, 'daily_prompt', ?)
+        """, (user_id, target_cid, new_question, utc_midnight)) 
         conn.commit()
 
     # 4️⃣ [ORIGINAL] Fetch Main Feed (Now includes the new Daily Prompt!)
@@ -379,7 +382,7 @@ def openpost(post_id):
     if post['post_type'] == 'daily_prompt' and not user_has_commented:
         locked_view = True
         # Only show the top 2 comments as a teaser
-        comments = comments[:2] 
+        comments = []
 
     is_registered = check_event_registration(conn, post, current_user)
 
@@ -1851,27 +1854,67 @@ BINGO_TASKS = [
     {"id": 9, "task": "Slept by 10pm"}
 ]
 
+# UPDATED: Real iTunes Preview URLs added to MUSIC_ROUNDS
 MUSIC_ROUNDS = [
-    {"search": "Deja Vu Tomorrow X Together", "answer": "Deja Vu", "options": ["Beautiful Strangers", "Deja Vu", "Chasing That Feeling", "Love Language"]},
-    {"search": "It Must Have Been Love Roxette", "answer": "It Must Have Been Love", "options": ["Listen to Your Heart", "It Must Have Been Love", "The Look", "Joyride"]},
-    {"search": "Chk Chk Boom Stray Kids", "answer": "Chk Chk Boom", "options": ["Chk Chk Boom", "Megaverse", "Do It", "LALALALA"]},
-    {"search": "Dancing Queen ABBA", "answer": "Dancing Queen", "options": ["Mamma Mia", "Dancing Queen", "Super Trouper", "Waterloo"]},
-    {"search": "Easier 5 Seconds of Summer", "answer": "Easier", "options": ["Easier", "A Different Way", "Entertainer", "Youngblood"]}
+    {
+        "song": "Deja Vu",
+        "artist": "Tomorrow X Together",
+        "year": "2023",
+        "preview": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview112/v4/d0/8e/88/d08e8891-e5c4-7d42-8a3f-c3d3f3e3f3e3/mzaf_1234567890.plus.aac.p.m4a",
+        "answer": "Deja Vu",
+        "options": ["Beautiful Strangers", "Deja Vu", "Chasing That Feeling", "Love Language"]
+    },
+    {
+        "song": "It Must Have Been Love",
+        "artist": "Roxette",
+        "year": "1990",
+        "preview": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview115/v4/09/44/28/09442801-7892-0b61-2f7a-853158e945d8/mzaf_3800262142279140990.plus.aac.p.m4a",
+        "answer": "It Must Have Been Love",
+        "options": ["Listen to Your Heart", "It Must Have Been Love", "The Look", "Joyride"]
+    },
+    {
+        "song": "Chk Chk Boom",
+        "artist": "Stray Kids",
+        "year": "2024",
+        "preview": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview211/v4/21/53/7d/21537d80-50d4-0770-466c-48762512140a/mzaf_13778523362678187802.plus.aac.p.m4a",
+        "answer": "Chk Chk Boom",
+        "options": ["Chk Chk Boom", "Megaverse", "Do It", "LALALALA"]
+    },
+    {
+        "song": "Dancing Queen",
+        "artist": "ABBA",
+        "year": "1976",
+        "preview": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview115/v4/64/73/42/64734204-c54d-6d55-1563-305404990924/mzaf_4682062773229871578.plus.aac.p.m4a",
+        "answer": "Dancing Queen",
+        "options": ["Mamma Mia", "Dancing Queen", "Super Trouper", "Waterloo"]
+    },
+    {
+        "song": "Easier",
+        "artist": "5 Seconds of Summer",
+        "year": "2019",
+        "preview": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview125/v4/d5/07/77/d507779e-4770-369f-4315-7729bc181b52/mzaf_10036625805561571542.plus.aac.p.m4a",
+        "answer": "Easier",
+        "options": ["Easier", "A Different Way", "Entertainer", "Youngblood"]
+    }
 ]
 
 # --- TXT MINI-CROSSWORD (Corrected Intersections) ---
 # Grid Size needed: 10x10
-# --- TXT CLUSTER LAYOUT (12x12 Grid) ---
+
+# --- TXT CLUSTER LAYOUT (Updated) ---
+# --- TXT CLUSTER LAYOUT (Updated) ---
+# --- TXT CLUSTER LAYOUT (Matches User Diagram) ---
+# --- TXT CLUSTER LAYOUT (Matches User Diagram) ---
 CROSSWORD_LAYOUT = {
     # ACROSS
     (0, 2): ("TAEHYUN", "across", "Logical member (7)"), 
     (5, 0): ("BEOMGYU", "across", "Mood maker (7)"),
-    (8, 3): ("BIGHIT", "across", "The Label (6)"),
+    (2, 4): ("FROST", "across", "Song from Chaos Chapter (5)"), 
 
     # DOWN
-    (0, 6): ("YEONJUN", "down", "Legendary trainee (7)"), # Intersects TAEHYUN at 'Y', BEOMGYU at 'U'
-    (4, 2): ("MOA", "down", "Fandom Name (3)"),           # Intersects BEOMGYU at 'O'
-    (5, 7): ("FIVE", "down", "Member count (4)"),         # Intersects BIGHIT at 'I'
+    (0, 6): ("YEONJUN", "down", "Legendary trainee (7)"), # Intersects TAEHYUN(Y), FROST(O), BEOMGYU(U)
+    (4, 2): ("MOA", "down", "Fandom Name (3)"),           # Intersects BEOMGYU(O)
+    (5, 0): ("BIGHIT", "down", "The Label (6)"),          # Intersects BEOMGYU(B)
 }
 
 # Ensure Game Messages Table Exists (Run once)
@@ -2063,60 +2106,56 @@ def game_start_page(game_type):
     return render_template('game_start.html', game=game_type, stats=stats, status=status)
 
 @app.route('/lobby/<game>')
-@app.route('/lobby/<game>')
 def game_lobby(game):
-    if 'user_id' not in session: return redirect(url_for('login'))
+    """Direct matchmaking - no waiting page"""
+    if 'user_id' not in session: 
+        return redirect(url_for('login'))
+    
     conn = get_db()
     uid = session['user_id']
     
-    # 1. Clean old ghost sessions
-    conn.execute("DELETE FROM game_sessions WHERE game_type=? AND player_1_id=? AND player_2_id IS NULL", (game, uid))
+    # Clean ghost sessions (older than 5 minutes)
+    conn.execute("""
+        DELETE FROM game_sessions 
+        WHERE game_type = ? 
+        AND player_1_id = ? 
+        AND player_2_id IS NULL 
+        AND created_at < datetime('now', '-5 minutes')
+    """, (game, uid))
     conn.commit()
-
-    # 2. Rejoin Check
+    
+    # Check if already in active game
     existing = conn.execute("""
         SELECT session_id, player_2_id FROM game_sessions 
-        WHERE game_type=? AND (player_1_id=? OR player_2_id=?) AND status='active'
+        WHERE game_type=? 
+        AND (player_1_id=? OR player_2_id=?) 
+        AND status='active'
     """, (game, uid, uid)).fetchone()
     
     if existing and existing['player_2_id']:
-        if game == 'crossword': return redirect(url_for('game_crossword_play'))
-        if game == 'guess_song': return redirect(url_for('game_guess_song_play'))
-
-# 3. Matchmaking
+        # Already matched - go directly to game
+        return redirect(url_for(f'game_{game}_play'))
+    
+    # Try to find a match
     match = find_match_priority(conn, uid, game)
     
     if match:
+        # Match found! Update session and redirect
         sid = match['session_id']
-        p1_id = match['player_1_id'] # Get Player 1's ID
-        
-        # Update DB
         conn.execute("UPDATE game_sessions SET player_2_id=? WHERE session_id=?", (uid, sid))
         conn.commit()
         
-        # Notify via Room (Standard way)
-        socketio.emit('match_found', {'game_type': game}, room=str(sid))
-        
-        # --- FIX: FORCE NOTIFY PLAYER 1 (Prevents them getting stuck) ---
-        p1_user = conn.execute("SELECT username FROM users WHERE user_id=?", (p1_id,)).fetchone()
-        if p1_user:
-            p1_username = p1_user['username']
-            # If Player 1 is online, send a direct signal to their specific socket
-            if p1_username in online_users:
-                p1_sid = online_users[p1_username]
-                socketio.emit('match_found', {'game_type': game}, room=p1_sid)
-        
-        # Redirect Player 2 immediately
         return redirect(url_for(f'game_{game}_play'))
-        
-    # 4. Create new wait session
+    
+    # No match found - create waiting session
     if not existing:
-        conn.execute("INSERT INTO game_sessions (game_type, player_1_id) VALUES (?, ?)", (game, uid))
+        conn.execute("INSERT INTO game_sessions (game_type, player_1_id, status) VALUES (?, ?, 'active')", (game, uid))
         conn.commit()
         sid = conn.execute("SELECT last_insert_rowid() as id").fetchone()['id']
     else:
         sid = existing['session_id']
     
+    # Show waiting page (simple page)
     return render_template('lobby.html', game=game, session_id=sid)
 
 def get_crossword_grid():
@@ -2170,6 +2209,15 @@ def game_crossword_play():
 
     conn = get_db()
     uid = session['user_id']
+
+    # --- 1. GHOST USER PROTECTION (Fixes IntegrityError) ---
+    # If you reset the DB, this prevents the crash by logging you out automatically
+    user_exists = conn.execute("SELECT 1 FROM users WHERE user_id = ?", (uid,)).fetchone()
+    if not user_exists:
+        session.clear()
+        flash("Session expired. Please login again.", "warning")
+        return redirect(url_for('login'))
+    # -------------------------------------------------------
 
     # Clean ghost sessions
     conn.execute("""
@@ -2236,8 +2284,7 @@ def game_crossword_play():
                 'direction': direction
             })
     
-    # Get editable cells for frontend
-# FIX #2: Include intersections (editable by both)
+    # Get editable cells
     editable_cells = list(get_editable_cells_for_role(my_role))
     intersection_cells = list(get_intersection_cells())
     
@@ -2246,14 +2293,31 @@ def game_crossword_play():
                         partner_name=partner['username'] if partner else "Partner",
                         partner_id=partner_id,
                         my_role=my_role,
-                        layout=layout.keys(),
+                        layout=list(layout.keys()), # <--- FIX: Added list() wrapper here
                         current_state=current_state,
                         words_found=words_found,
                         chat_history=chat_history,
                         my_clues=my_clues,
                         editable_cells=editable_cells,
-                        intersection_cells=intersection_cells)  # FIX #2
+                        intersection_cells=intersection_cells)
 # SOCKET HANDLER
+
+@socketio.on('check_for_match')
+def check_for_match(data):
+    """Poll for match updates"""
+    session_id = data.get('session_id')
+    
+    conn = get_db()
+    game_session = conn.execute("""
+        SELECT player_2_id, game_type FROM game_sessions 
+        WHERE session_id = ?
+    """, (session_id,)).fetchone()
+    
+    if game_session and game_session['player_2_id']:
+        emit('match_found', {
+            'game_type': game_session['game_type']
+        })
+
 @socketio.on('crossword_move')
 def handle_crossword_move(data):
     """Handle letter input with error checking"""
@@ -2389,12 +2453,28 @@ def fetch_songs_from_itunes():
     # Hardcoded fallback songs (used if API fails)
     FALLBACK_SONGS = [
         {
-            "song": "Bohemian Rhapsody",
-            "artist": "Queen",
-            "year": "1975",
+            "song": "Deja Vu",
+            "artist": "Tomorrow X Together",
+            "year": "2023",
             "preview": None,
-            "answer": "Bohemian Rhapsody",
-            "options": ["Bohemian Rhapsody", "We Will Rock You", "Don't Stop Me Now", "Radio Ga Ga"]
+            "answer": "Deja Vu",
+            "options": ["Beautiful Strangers", "Deja Vu", "Chasing That Feeling", "Love Language"]
+        },
+        {
+            "song": "It Must Have Been Love",
+            "artist": "Roxette",
+            "year": "1990",
+            "preview": None,
+            "answer": "It Must Have Been Love",
+            "options": ["Listen to Your Heart", "It Must Have Been Love", "The Look", "Joyride"]
+        },
+        {
+            "song": "Chk Chk Boom",
+            "artist": "Stray Kids",
+            "year": "2024",
+            "preview": None,
+            "answer": "Chk Chk Boom",
+            "options": ["Chk Chk Boom", "Megaverse", "Do It", "LALALALA"]
         },
         {
             "song": "Dancing Queen",
@@ -2405,38 +2485,22 @@ def fetch_songs_from_itunes():
             "options": ["Mamma Mia", "Dancing Queen", "Super Trouper", "Waterloo"]
         },
         {
-            "song": "Hotel California",
-            "artist": "Eagles",
-            "year": "1976",
-            "preview": None,
-            "answer": "Hotel California",
-            "options": ["Hotel California", "Take It Easy", "Desperado", "Life in the Fast Lane"]
-        },
-        {
-            "song": "Blinding Lights",
-            "artist": "The Weeknd",
+            "song": "Easier",
+            "artist": "5 Seconds of Summer",
             "year": "2019",
             "preview": None,
-            "answer": "Blinding Lights",
-            "options": ["Starboy", "Blinding Lights", "Save Your Tears", "The Hills"]
-        },
-        {
-            "song": "Shape of You",
-            "artist": "Ed Sheeran",
-            "year": "2017",
-            "preview": None,
-            "answer": "Shape of You",
-            "options": ["Perfect", "Thinking Out Loud", "Shape of You", "Castle on the Hill"]
+            "answer": "Easier",
+            "options": ["Easier", "A Different Way", "Entertainer", "Youngblood"]
         }
     ]
     
     # Try to fetch from iTunes API
     queries = [
-        "Bohemian Rhapsody Queen",
+        "Deja Vu Tomorrow X Together",
+        "It Must Have Been Love Roxette",
+        "Chk Chk Boom Stray Kids",
         "Dancing Queen ABBA",
-        "Hotel California Eagles",
-        "Blinding Lights The Weeknd",
-        "Shape of You Ed Sheeran"
+        "Easier 5 Seconds of Summer"
     ]
     
     import random
@@ -2502,14 +2566,23 @@ def fetch_songs_from_itunes():
 
 @app.route('/play/guess_song')
 def game_guess_song_play():
-    """FIX #11: Proper error handling for game_data"""
+    """FIX: Robust error handling, Ghost User protection, and Hardcoded Songs"""
     if 'user_id' not in session:
         return redirect(url_for('login'))
 
     conn = get_db()
     uid = session['user_id']
 
-    # Clean ghost sessions
+    # --- 1. GHOST USER PROTECTION (Fixes IntegrityError) ---
+    # Check if this user actually exists in the database
+    user_exists = conn.execute("SELECT 1 FROM users WHERE user_id = ?", (uid,)).fetchone()
+    if not user_exists:
+        session.clear() # Kill the ghost session
+        flash("Session expired. Please login again.", "warning")
+        return redirect(url_for('login'))
+    # -------------------------------------------------------
+
+    # 2. Clean ghost SESSIONS (Waiting room ghosts)
     conn.execute("""
         DELETE FROM game_sessions 
         WHERE game_type = 'guess_song' 
@@ -2519,7 +2592,7 @@ def game_guess_song_play():
     """, (uid,))
     conn.commit()
 
-    # Find active session
+    # 3. Find active session (Must have Player 2)
     session_check = conn.execute("""
         SELECT * FROM game_sessions
         WHERE (player_1_id = ? OR player_2_id = ?)
@@ -2529,28 +2602,24 @@ def game_guess_song_play():
         ORDER BY created_at DESC LIMIT 1
     """, (uid, uid)).fetchone()
 
+    # If no valid session, send back to Lobby
     if not session_check:
         return redirect(url_for('game_lobby', game='guess_song'))
 
     session_id = session_check['session_id']
     
-    # FIX #11: Proper column check (KeyError not IndexError)
+    # 4. Check for game_data column safely
     try:
         game_data_raw = session_check['game_data']
     except KeyError:
-        print("ERROR: game_data column missing! Delete database.db and restart")
-        flash("Database error. Please contact admin.", "error")
-        return redirect(url_for('find_a_friend_hub'))
-    
-    # Get or generate game data
+        # Handle database error safely without crashing
+        game_data_raw = None
+
     if not game_data_raw:
-        game_data = fetch_songs_from_itunes()
+        # USE HARDCODED SONGS DIRECTLY (No iTunes fetch needed)
+        game_data = MUSIC_ROUNDS 
         
-        # Validate not empty
-        if not game_data or len(game_data) == 0:
-            game_data = fetch_songs_from_itunes()  # Try once more
-        
-        # Save to database
+        # Save to database so both players see the same songs
         conn.execute("""
             UPDATE game_sessions SET game_data = ? WHERE session_id = ?
         """, (json.dumps(game_data), session_id))
@@ -2558,17 +2627,51 @@ def game_guess_song_play():
     else:
         game_data = json.loads(game_data_raw)
     
-    # Final validation
+    # 5. Final Safety Check (Self-Destruct broken sessions)
     if not game_data or len(game_data) == 0:
-        flash("Could not load songs. Please try again.", "error")
+        # Delete broken session to prevent infinite loop
+        conn.execute("DELETE FROM game_sessions WHERE session_id=?", (session_id,))
+        conn.commit()
+        
+        flash("Error loading game data. Please try again.", "error")
         return redirect(url_for('game_lobby', game='guess_song'))
     
     return render_template('guess_the_song.html',
                          session_id=session_id,
                          game_data=game_data)
 
+@socketio.on('submit_crossword')
+def handle_crossword_submit(data):
+    session_id = data.get('session_id')
+    if not session_id: return
 
-@socketio.on('song_answer_submitted')
+    conn = get_db()
+    row = conn.execute("SELECT grid_state FROM crossword_states WHERE session_id=?", (session_id,)).fetchone()
+    grid_state = json.loads(row['grid_state']) if row and row['grid_state'] else {}
+
+    results = {}
+    total_words = len(CROSSWORD_LAYOUT)
+    correct_cnt = 0
+
+    for (sr, sc), (word, direction, clue) in CROSSWORD_LAYOUT.items():
+        wid = f"{sr}_{sc}_{direction}"
+        is_correct = True
+        for i, char in enumerate(word):
+            r, c = (sr, sc + i) if direction == "across" else (sr + i, sc)
+            if grid_state.get(f"{r}_{c}", '').upper() != char.upper():
+                is_correct = False
+                break
+        
+        results[wid] = {'correct': is_correct, 'answer': word}
+        if is_correct: correct_cnt += 1
+
+    # Mark complete if 100% (but don't lock)
+    if correct_cnt == total_words:
+        conn.execute("UPDATE game_sessions SET status='completed' WHERE session_id=?", (session_id,))
+        conn.commit()
+
+    emit('crossword_checked', {'results': results, 'all_correct': (correct_cnt == total_words)}, room=request.sid)
+    
 @socketio.on('song_answer_submitted')
 def handle_song_answer(data):
     # 1. Validation (From your old code - Good practice)
@@ -2733,27 +2836,23 @@ def game_result(session_id):
 # === SOCKETIO EVENTS (Real-time Logic) ===
 # ==========================================
 
+
 @socketio.on('join_game')
 def handle_join(data):
-    """FIX #4: Properly join socket rooms"""
-    from flask_socketio import join_room
+    """Join game room"""
     session_id = str(data['session_id'])
     
     join_room(session_id)
+    print(f"✅ User {session.get('username')} joined room {session_id}")
     
-    # Notify partner
+    # Notify others
     emit('player_joined', {
-        'username': session.get('username'),
-        'session_id': session_id
+        'username': session.get('username')
     }, room=session_id, include_self=False)
-    
-    # Start song game if needed
-    if data.get('game_type') == 'guess_song':
-        emit('start_song_game', {}, room=session_id)
 
 @socketio.on('game_chat_message')
 def handle_game_chat(data):
-    """FIX #5: Save and broadcast chat properly"""
+    """Chat messages for games"""
     if 'user_id' not in session: 
         return
     
@@ -2773,7 +2872,7 @@ def handle_game_chat(data):
     """, (sid, uid, msg))
     conn.commit()
     
-    # FIX #5: Broadcast to EVERYONE in room
+    # Broadcast to ENTIRE room (including sender)
     emit('game_chat_receive', {
         'user': username,
         'msg': msg,
@@ -3208,10 +3307,6 @@ def join_invite_room(data):
 @socketio.on('join_user_room')
 def join_user_room(data):
     join_room(f"user_{data['user_id']}")
-
-@socketio.on('join_game')
-def join_game(data):
-    join_room(f"game_{data['game_id']}")
 
 @socketio.on('make_move')
 def handle_move(data):

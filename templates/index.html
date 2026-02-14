@@ -65,13 +65,15 @@
                 <div class="card-body position-relative">
 
                     {% if session.get('username') == post['username'] %}
-                    <div class="position-absolute top-0 end-0 p-3">
-                        <button type="button"
+                    {% if post['post_type'] != 'daily_prompt' %}
+                        <div class="position-absolute top-0 end-0 p-3">
+                            <button type="button"
                                 class="btn btn-sm text-danger border-0 p-0"
-                                onclick="event.stopPropagation(); deletePost(this, {{ post['post_id'] }})">
-                            <i class="fa fa-trash"></i>
-                        </button>
-                    </div>
+                                    onclick="event.stopPropagation(); deletePost(this, {{ post['post_id'] }})">
+                                <i class="fa fa-trash"></i>
+                            </button>
+                        </div>
+                    {% endif %}
                     {% endif %}
 
                 <h4 class="card-title pr-5">{{ post['title'] | mention | safe }}</h4>
