@@ -188,23 +188,13 @@
 
 <div class="game-container">
     
-    <!-- Waiting Area -->
-    <div id="waiting-area" class="text-center py-5">
-        <h3 class="mb-4">Waiting for both players...</h3>
-        <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"></div>
-        <p class="text-muted mt-3">Do not refresh the page.</p>
-    </div>
-
-    <!-- Game Area (Hidden initially) -->
-    <div id="game-area" style="display:none;">
+    <div id="game-area" style="display:block;">
         
-        <!-- Round Info -->
         <div class="round-info">
             <h3>Round <span id="round-num">1</span> / 5</h3>
             <div class="timer" id="timer">10s</div>
         </div>
 
-        <!-- Scoreboard -->
         <div class="scoreboard">
             <div class="score-item">
                 <div class="label">You</div>
@@ -216,7 +206,6 @@
             </div>
         </div>
 
-        <!-- Soundwave Visualization -->
         <div class="soundwave-container" id="soundwave-section">
             <div class="soundwave">
                 <div class="bar"></div>
@@ -231,14 +220,11 @@
             <audio id="audioPlayer" style="display:none;" controls></audio>
         </div>
 
-        <!-- Options Grid (2x2) -->
         <div class="options-grid" id="options-container">
-            <!-- Options will be inserted here -->
-        </div>
+            </div>
 
     </div>
 
-    <!-- Waiting for Partner Overlay -->
     <div id="waiting-overlay" class="waiting-overlay" style="display:none;">
         <div class="waiting-message">
             <h4 class="mb-3">⏳ Waiting for partner...</h4>
@@ -246,12 +232,10 @@
         </div>
     </div>
 
-    <!-- Congratulations Modal -->
     <div id="congrats-modal" class="congrats-modal">
         <div class="congrats-content">
             <h2 class="text-center mb-4">🎉 Game Complete! 🎉</h2>
             
-            <!-- Final Scores -->
             <div class="scoreboard">
                 <div class="score-item">
                     <div class="label">Your Score</div>
@@ -263,13 +247,10 @@
                 </div>
             </div>
 
-            <!-- Song Summary -->
             <h5 class="mt-4 mb-3">Songs Played:</h5>
             <div class="song-summary" id="song-summary">
-                <!-- Will be populated -->
-            </div>
+                </div>
 
-            <!-- Actions -->
             <div class="mt-4 d-flex gap-2">
                 <a href="{{ url_for('find_a_friend_hub') }}" class="btn btn-secondary flex-fill">
                     Back to Hub
@@ -281,7 +262,6 @@
         </div>
     </div>
 
-    <!-- Hidden Form for Completion -->
     <form action="{{ url_for('game_complete', game_type='song') }}" method="POST" id="finishForm">
         <input type="hidden" name="session_id" value="{{ session_id }}">
         <input type="hidden" name="score" id="finalScoreInput" value="0">
@@ -301,12 +281,14 @@
     let myAnswer = null;
     let songHistory = [];
 
-    socket.emit('join_game', {session_id: sessionId});
+    // Join room for answer syncing, but don't wait for start signal
+    socket.emit('join_game', {
+        session_id: sessionId, 
+        game_type: 'guess_song'
+    });
 
-    // Start game when both players ready
-    socket.on('start_song_game', () => {
-        document.getElementById('waiting-area').style.display = 'none';
-        document.getElementById('game-area').style.display = 'block';
+    // START GAME IMMEDIATELY
+    window.addEventListener('DOMContentLoaded', () => {
         loadRound();
     });
 
@@ -344,6 +326,10 @@
         // Start Timer (10 seconds)
         let timeLeft = 10;
         const timerEl = document.getElementById('timer');
+        timerEl.innerText = "10s";
+
+        // Clear any existing timer
+        if (window.currentTimer) clearInterval(window.currentTimer);
         
         const timer = setInterval(() => {
             timeLeft--;

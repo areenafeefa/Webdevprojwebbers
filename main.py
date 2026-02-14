@@ -37,6 +37,8 @@ app.jinja_env.filters['mention'] = mention
 
 # Dictionary to track online users: username -> sid
 online_users = {}
+
+song_game_state = {}
 # Connect to your DB
 conn = sqlite3.connect('database.db')
 cursor = conn.cursor()
@@ -91,6 +93,28 @@ def close_db(error):
     if hasattr(g, 'sqlite3_db'):
         g.sqlite3_db.close()
 
+def get_local_timestamp():
+    """FIX #8: Singapore time (UTC+8)"""
+    from datetime import datetime, timezone, timedelta
+    utc_now = datetime.now(timezone.utc)
+    singapore_time = utc_now + timedelta(hours=8)
+    return singapore_time.strftime('%Y-%m-%d %H:%M:%S')
+
+def get_intersection_cells():
+    """FIX #2: Crossword intersections"""
+    across_cells = set()
+    down_cells = set()
+    
+    for (r, c), (word, direction, clue) in CROSSWORD_LAYOUT.items():
+        if direction == 'across':
+            for i in range(len(word)):
+                across_cells.add((r, c + i))
+        else:
+            for i in range(len(word)):
+                down_cells.add((r + i, c))
+    
+    return across_cells & down_cells
+
 # --- Routes ---
 # Home page
 @app.route('/api/users')
@@ -126,11 +150,13 @@ app.jinja_env.globals.update(
     count_unread_notifications=count_unread_notifications,
     get_notifications=get_notifications
 )
+
+@app.route('/')
 @app.route('/')
 def index():
     conn = get_db()
 
-    # 1️⃣ Get user_id safely
+    # 1️⃣ [ORIGINAL] Get user_id safely and heal session if needed
     user_id = session.get('user_id')
     current_user = None
     if not user_id and 'username' in session:
@@ -142,24 +168,7 @@ def index():
             user_id = user_row['user_id']
             session['user_id'] = user_id
 
-    # 2️⃣ Fetch main posts feed with like info
-    posts = conn.execute("""
-        SELECT 
-            posts.*, 
-            users.username, 
-            communities.name AS community_name,
-            (SELECT COUNT(*) FROM post_likes WHERE post_id = posts.post_id) AS like_count,
-            (SELECT 1 FROM post_likes WHERE post_id = posts.post_id AND user_id = ?) AS user_liked
-        FROM posts
-        JOIN users ON posts.user_id = users.user_id
-        JOIN communities ON posts.community_id = communities.community_id
-        ORDER BY posts.created_at DESC
-    """, (user_id,)).fetchall()
-
-    # 3️⃣ Get home page sidebar data (user communities + recent posts)
-    sidebar_data = get_home_sidebar_data(user_id, top_n_communities=3, recent_posts_limit=5)
-
-    # 4️⃣ Fetch current user info for badge
+    # 2️⃣ [ORIGINAL] Fetch Current User Info (Moved up so we can use it)
     if user_id:
         user_row = conn.execute("""
             SELECT u.user_id, u.username, COALESCE(p.display_name, u.username) AS display_name
@@ -171,14 +180,76 @@ def index():
         if user_row:
             current_user = dict(user_row)
 
-    # 5️⃣ Render template
+    # 3️⃣ [NEW] DAILY PROMPT LOGIC (Runs BEFORE fetching posts)
+    # This checks if a "Daily Prompt" post exists for today. If not, it creates one.
+    today_str = date.today().isoformat()
+    
+    existing_prompt = conn.execute("""
+        SELECT 1 FROM posts 
+        WHERE post_type = 'daily_prompt' 
+        AND date(created_at) = ?
+    """, (today_str,)).fetchone()
+
+    # Only create if missing AND user is logged in (to act as author)
+    if not existing_prompt and user_id:
+        import random
+        prompt_options = [
+            "What is a small win you had today?",
+            "What is your favorite comfort food?",
+            "Share a photo of something blue near you.",
+            "What is the best advice you've ever received?",
+            "If you could travel anywhere right now, where would you go?",
+            "What was the last song you listened to?",
+            "What are you grateful for today?"
+        ]
+        new_question = random.choice(prompt_options)
+        
+        # --- FIX FOR CRASH: Find a valid Community ID ---
+        # We try to find ANY existing community. If none, we create "General".
+        comm_row = conn.execute("SELECT community_id FROM communities LIMIT 1").fetchone()
+        
+        if comm_row:
+            target_cid = comm_row['community_id']
+        else:
+            # Create a default community if the table is empty
+            cursor = conn.execute("INSERT INTO communities (name, description) VALUES (?, ?)", ('General', 'General discussion'))
+            conn.commit()
+            target_cid = cursor.lastrowid
+
+        # Insert the System Post using the valid Community ID
+        conn.execute("""
+            INSERT INTO posts (user_id, community_id, title, content, post_type)
+            VALUES (?, ?, 'Daily Prompt', ?, 'daily_prompt')
+        """, (user_id, target_cid, new_question)) 
+        conn.commit()
+
+    # 4️⃣ [ORIGINAL] Fetch Main Feed (Now includes the new Daily Prompt!)
+    posts = conn.execute("""
+        SELECT 
+            posts.*, 
+            users.username, 
+            communities.name AS community_name,
+            (SELECT COUNT(*) FROM post_likes WHERE post_id = posts.post_id) AS like_count,
+            (SELECT 1 FROM post_likes WHERE post_id = posts.post_id AND user_id = ?) AS user_liked
+        FROM posts
+        JOIN users ON posts.user_id = users.user_id
+        JOIN communities ON posts.community_id = communities.community_id
+        ORDER BY 
+            CASE WHEN post_type = 'daily_prompt' THEN 1 ELSE 0 END DESC, -- Optional: Pins Prompt to top
+            posts.created_at DESC
+    """, (user_id,)).fetchall()
+
+    # 5️⃣ [ORIGINAL] Get sidebar data
+    sidebar_data = get_home_sidebar_data(user_id, top_n_communities=3, recent_posts_limit=5)
+
+    # 6️⃣ [ORIGINAL] Render template
     return render_template(
         'index.html',
         posts=posts,
-        current_user=current_user,  # current user badge info
+        current_user=current_user,
         **sidebar_data
     )
-
+    
 # 
 #  Community page
 @app.route('/community/<int:community_id>')
@@ -243,35 +314,57 @@ import time # Ensure this is at the top with your other imports
 
 # --- View Post + Comments (AJAX Integrated) ---
 @app.route('/post/<int:post_id>', methods=['GET', 'POST'])
+@app.route('/post/<int:post_id>', methods=['GET', 'POST'])
 def openpost(post_id):
     conn = get_db()
     current_user = get_current_user(conn)
+    user_id = session.get('user_id')
 
     post = fetch_post(conn, post_id)
     if not post:
         return "Post not found.", 404
 
+    # --- Handle Comment/Event Submission ---
     if request.method == "POST":
         if not current_user:
             return redirect(url_for("login"))
-
+        
+        # Helper functions handle the database insert
         if handle_event_registration(conn, post, current_user):
             return redirect(url_for("openpost", post_id=post_id))
-
         if handle_comment_submission(conn, post, current_user):
             return redirect(url_for("openpost", post_id=post_id))
 
-    comments = fetch_comments(get_db(), post_id, session.get('user_id'))
+    # --- VIEW RESTRICTION LOGIC ---
+    # 1. Fetch all comments first
+    comments = fetch_comments(get_db(), post_id, user_id)
+    
+    # 2. Check if user has commented
+    user_has_commented = False
+    if user_id:
+        for c in comments:
+            if c['user_id'] == user_id: 
+                user_has_commented = True
+                break
+    
+    # 3. Apply Restriction
+    # If it is a daily prompt AND user hasn't commented...
+    locked_view = False
+    if post['post_type'] == 'daily_prompt' and not user_has_commented:
+        locked_view = True
+        # Only show the top 2 comments as a teaser
+        comments = comments[:2] 
+
     is_registered = check_event_registration(conn, post, current_user)
 
     return render_template(
         "openpost.html",
         post=post,
         comments=comments,
-        is_registered=is_registered
-        
+        is_registered=is_registered,
+        locked_view=locked_view # Pass this flag to HTML
     )
-
+    
 @app.route('/create_post', methods=['GET', 'POST'])
 
 @app.route('/create_post/<int:community_id>', methods=['GET', 'POST'])
@@ -363,6 +456,246 @@ def create_post(community_id=None):
         community_name=community_name,
         community_id=community_id
     )
+
+# ==========================================
+# DAILY PROMPTS SYSTEM - ADD AFTER create_post ROUTE
+# ==========================================
+
+@app.route('/daily_prompts')
+def daily_prompts_page():
+    """Main daily prompts page"""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    conn = get_db()
+    today = date.today()
+    
+    # Get active daily prompt
+    daily_prompt = conn.execute("""
+        SELECT * FROM daily_prompts 
+        WHERE prompt_type = 'daily' 
+        AND start_date <= ? 
+        AND (end_date IS NULL OR end_date >= ?)
+        AND is_active = 1
+        ORDER BY start_date DESC LIMIT 1
+    """, (today, today)).fetchone()
+    
+    # Get active weekly prompt
+    weekly_prompt = conn.execute("""
+        SELECT * FROM daily_prompts 
+        WHERE prompt_type = 'weekly' 
+        AND start_date <= ? 
+        AND (end_date IS NULL OR end_date >= ?)
+        AND is_active = 1
+        ORDER BY start_date DESC LIMIT 1
+    """, (today, today)).fetchone()
+    
+    # Get user's responses
+    user_responses = {}
+    if daily_prompt:
+        user_resp = conn.execute("""
+            SELECT * FROM prompt_responses 
+            WHERE prompt_id = ? AND user_id = ?
+        """, (daily_prompt['prompt_id'], session['user_id'])).fetchone()
+        if user_resp:
+            user_responses['daily'] = dict(user_resp)
+    
+    if weekly_prompt:
+        user_resp = conn.execute("""
+            SELECT * FROM prompt_responses 
+            WHERE prompt_id = ? AND user_id = ?
+        """, (weekly_prompt['prompt_id'], session['user_id'])).fetchone()
+        if user_resp:
+            user_responses['weekly'] = dict(user_resp)
+    
+    return render_template('daily_prompts.html', 
+                         daily_prompt=daily_prompt,
+                         weekly_prompt=weekly_prompt,
+                         user_responses=user_responses)
+
+@app.route('/submit_prompt_response', methods=['POST'])
+def submit_prompt_response():
+    """Submit or edit response"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+    
+    prompt_id = request.form.get('prompt_id')
+    content = request.form.get('content', '').strip()
+    
+    if not content:
+        return jsonify({'error': 'Response cannot be empty'}), 400
+    
+    conn = get_db()
+    
+    existing = conn.execute("""
+        SELECT response_id FROM prompt_responses 
+        WHERE prompt_id = ? AND user_id = ?
+    """, (prompt_id, session['user_id'])).fetchone()
+    
+    if existing:
+        conn.execute("""
+            UPDATE prompt_responses 
+            SET content = ?, updated_at = CURRENT_TIMESTAMP 
+            WHERE response_id = ?
+        """, (content, existing['response_id']))
+    else:
+        conn.execute("""
+            INSERT INTO prompt_responses (prompt_id, user_id, content) 
+            VALUES (?, ?, ?)
+        """, (prompt_id, session['user_id'], content))
+    
+    conn.commit()
+    return jsonify({'success': True})
+
+@app.route('/get_prompt_responses/<int:prompt_id>')
+def get_prompt_responses(prompt_id):
+    """Get responses (only after user answers)"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+    
+    conn = get_db()
+    user_id = session['user_id']
+    
+    # Check if user answered
+    user_response = conn.execute("""
+        SELECT response_id FROM prompt_responses 
+        WHERE prompt_id = ? AND user_id = ?
+    """, (prompt_id, user_id)).fetchone()
+    
+    if not user_response:
+        return jsonify({'error': 'You must answer before viewing other responses'}), 403
+    
+    # Get friend responses
+    friend_responses = conn.execute("""
+        SELECT pr.*, u.username, COALESCE(up.display_name, u.username) as display_name,
+               (SELECT COUNT(*) FROM prompt_response_likes prl WHERE prl.response_id = pr.response_id) as like_count,
+               (SELECT 1 FROM prompt_response_likes prl WHERE prl.response_id = pr.response_id AND prl.user_id = ?) as user_liked
+        FROM prompt_responses pr
+        JOIN users u ON pr.user_id = u.user_id
+        LEFT JOIN user_profiles up ON u.user_id = up.user_id
+        WHERE pr.prompt_id = ? 
+        AND pr.user_id != ?
+        AND pr.user_id IN (
+            SELECT addressee_id FROM friends WHERE requester_id = ? AND status = 'accepted'
+            UNION
+            SELECT requester_id FROM friends WHERE addressee_id = ? AND status = 'accepted'
+        )
+        ORDER BY pr.created_at DESC
+    """, (user_id, prompt_id, user_id, user_id, user_id)).fetchall()
+    
+    # Get top responses
+    other_responses = conn.execute("""
+        SELECT pr.*, u.username, COALESCE(up.display_name, u.username) as display_name,
+               (SELECT COUNT(*) FROM prompt_response_likes prl WHERE prl.response_id = pr.response_id) as like_count,
+               (SELECT 1 FROM prompt_response_likes prl WHERE prl.response_id = pr.response_id AND prl.user_id = ?) as user_liked
+        FROM prompt_responses pr
+        JOIN users u ON pr.user_id = u.user_id
+        LEFT JOIN user_profiles up ON u.user_id = up.user_id
+        WHERE pr.prompt_id = ? AND pr.user_id != ?
+        AND pr.user_id NOT IN (
+            SELECT addressee_id FROM friends WHERE requester_id = ? AND status = 'accepted'
+            UNION
+            SELECT requester_id FROM friends WHERE addressee_id = ? AND status = 'accepted'
+        )
+        ORDER BY like_count DESC, pr.created_at DESC
+        LIMIT 10
+    """, (user_id, prompt_id, user_id, user_id, user_id)).fetchall()
+    
+    return jsonify({
+        'friend_responses': [dict(r) for r in friend_responses],
+        'other_responses': [dict(r) for r in other_responses]
+    })
+
+@app.route('/like_prompt_response', methods=['POST'])
+def like_prompt_response():
+    """Like/unlike response"""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+    
+    response_id = request.form.get('response_id')
+    conn = get_db()
+    
+    existing = conn.execute("""
+        SELECT like_id FROM prompt_response_likes 
+        WHERE response_id = ? AND user_id = ?
+    """, (response_id, session['user_id'])).fetchone()
+    
+    if existing:
+        conn.execute("DELETE FROM prompt_response_likes WHERE like_id = ?", (existing['like_id'],))
+        action = 'unliked'
+    else:
+        conn.execute("""
+            INSERT INTO prompt_response_likes (response_id, user_id) 
+            VALUES (?, ?)
+        """, (response_id, session['user_id']))
+        action = 'liked'
+    
+    conn.commit()
+    
+    like_count = conn.execute("""
+        SELECT COUNT(*) as count FROM prompt_response_likes 
+        WHERE response_id = ?
+    """, (response_id,)).fetchone()['count']
+    
+    return jsonify({'success': True, 'action': action, 'like_count': like_count})
+
+@app.route('/admin/create_prompt', methods=['GET', 'POST'])
+def admin_create_prompt():
+    """Admin route to create prompts"""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    if request.method == 'POST':
+        question = request.form.get('question')
+        prompt_type = request.form.get('prompt_type')  # 'daily' or 'weekly'
+        
+        conn = get_db()
+        today = date.today()
+        
+        # Deactivate previous prompts of this type
+        conn.execute("""
+            UPDATE daily_prompts 
+            SET is_active = 0 
+            WHERE prompt_type = ?
+        """, (prompt_type,))
+        
+        # Calculate end date
+        if prompt_type == 'daily':
+            end_date = today + timedelta(days=1)
+        else:  # weekly
+            end_date = today + timedelta(days=7)
+        
+        # Create new prompt
+        conn.execute("""
+            INSERT INTO daily_prompts (question, prompt_type, start_date, end_date, is_active)
+            VALUES (?, ?, ?, ?, 1)
+        """, (question, prompt_type, today, end_date))
+        
+        conn.commit()
+        flash(f'{prompt_type.capitalize()} prompt created!', 'success')
+        return redirect(url_for('admin_create_prompt'))
+    
+    return render_template('admin_create_prompt.html')
+
+@app.route('/prompt_history')
+def prompt_history():
+    """View user's previous prompt responses"""
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    conn = get_db()
+    
+    history = conn.execute("""
+        SELECT dp.question, dp.prompt_type, pr.content, pr.created_at
+        FROM prompt_responses pr
+        JOIN daily_prompts dp ON pr.prompt_id = dp.prompt_id
+        WHERE pr.user_id = ?
+        ORDER BY pr.created_at DESC
+        LIMIT 20
+    """, (session['user_id'],)).fetchall()
+    
+    return render_template('prompt_history.html', history=history)
+
 
 # inidicating your interests
 @app.route("/interests", methods=["POST"])
@@ -1751,34 +2084,19 @@ MUSIC_ROUNDS = [
     {"search": "Easier 5 Seconds of Summer", "answer": "Easier", "options": ["Easier", "A Different Way", "Entertainer", "Youngblood"]}
 ]
 
+# --- TXT MINI-CROSSWORD (Corrected Intersections) ---
+# Grid Size needed: 10x10
+# --- TXT CLUSTER LAYOUT (12x12 Grid) ---
 CROSSWORD_LAYOUT = {
-    # (row, col): (word, direction, clue)
-    (1, 2): ("2019", "across", "debut year (eg. 20XX)"),
-    (1, 9): ("GUMS", "across", "soobin and huening are ____"),
-    (2, 6): ("TODOE", "across", "txt variety show"),
-    (3, 8): ("TOMORROWXTOGETHER", "across", "txt is short for"),
-    (5, 11): ("ROLLERCOASTER", "across", '"so itchy, so itchy" song'),
-    (7, 13): ("ODIE", "across", "soobin's hedgehog"),
-    (9, 14): ("RUNAWAY", "across", "harry potter song"),
-    (11, 16): ("PUMA", "across", "txt song/big cat"),
-    (13, 18): ("SOOBIN", "across", "very tall leader"),
-    (13, 24): ("TAEHYUN", "across", "logical and mature member"),
-    (15, 21): ("BIGHIT", "across", "label"),
-    (17, 22): ("SHAMPOO", "across", "fairy of _______"),
-    (19, 23): ("BEOMGYU", "across", "🐻"),
-    (21, 25): ("DREAM", "across", "five boys under one _____"),
-    
-    (1, 1): ("2000", "down", "taehyun and huening's birth year"),
-    (1, 3): ("IKNOWILOVEYOU", "down", "i know i love you"),
-    (1, 5): ("DREAMING", "down", "first ep/album"),
-    (2, 6): ("ANTIFRAGILE", "down", "sorry i'm an ____________"),
-    (3, 8): ("TERRY", "down", "taehyun english name"),
-    (4, 10): ("HUENINGKAI", "down", "dolphin laughs"),
-    (5, 12): ("CROWNTITLE", "down", "debut song"),
-    (7, 14): ("CATDOG", "down", '"furry song"'),
-    (9, 17): ("YEONJUN", "down", "legendary trainee"),
-    (13, 20): ("FIVE", "down", "number of members"),
-    (19, 24): ("MOA", "down", "txt fandom")
+    # ACROSS
+    (0, 2): ("TAEHYUN", "across", "Logical member (7)"), 
+    (5, 0): ("BEOMGYU", "across", "Mood maker (7)"),
+    (8, 3): ("BIGHIT", "across", "The Label (6)"),
+
+    # DOWN
+    (0, 6): ("YEONJUN", "down", "Legendary trainee (7)"), # Intersects TAEHYUN at 'Y', BEOMGYU at 'U'
+    (4, 2): ("MOA", "down", "Fandom Name (3)"),           # Intersects BEOMGYU at 'O'
+    (5, 7): ("FIVE", "down", "Member count (4)"),         # Intersects BIGHIT at 'I'
 }
 
 # Ensure Game Messages Table Exists (Run once)
@@ -1964,61 +2282,56 @@ def game_start_page(game_type):
             })
             
     else:
-        # Show Multiplayer Game activity
-        # [FIX] Changed s.updated_at -> s.created_at to fix the Crash
-        activity_query = """
-            SELECT u.username, s.score, s.created_at
-            FROM game_sessions s
-            JOIN users u ON (s.player_1_id = u.user_id OR s.player_2_id = u.user_id)
-            WHERE s.game_type = ? AND s.status = 'completed' AND u.user_id != ?
-            ORDER BY s.created_at DESC LIMIT 5
-        """
-        raw_activity = conn.execute(activity_query, (game_type, uid)).fetchall()
-        
+        # No game history needed
         activity = []
-        for row in raw_activity:
-            score_txt = f"Score: {row['score']}" if row['score'] else "Played"
-            activity.append({
-                'username': row['username'],
-                'note': score_txt,
-                'created_at': row['created_at']
-            })
 
-    return render_template('game_start.html', game=game_type, stats=stats, activity=activity, status=status)
+    return render_template('game_start.html', game=game_type, stats=stats, status=status)
 
+@app.route('/lobby/<game>')
 @app.route('/lobby/<game>')
 def game_lobby(game):
     if 'user_id' not in session: return redirect(url_for('login'))
     conn = get_db()
     uid = session['user_id']
     
-    # 1. Rejoin Check
+    # 1. Clean old ghost sessions
+    conn.execute("DELETE FROM game_sessions WHERE game_type=? AND player_1_id=? AND player_2_id IS NULL", (game, uid))
+    conn.commit()
+
+    # 2. Rejoin Check
     existing = conn.execute("""
         SELECT session_id, player_2_id FROM game_sessions 
         WHERE game_type=? AND (player_1_id=? OR player_2_id=?) AND status='active'
     """, (game, uid, uid)).fetchone()
     
-    # If session exists and has 2 players, GO TO GAME
     if existing and existing['player_2_id']:
-        return redirect(url_for(f'game_{game}_play'))
+        if game == 'crossword': return redirect(url_for('game_crossword_play'))
+        if game == 'guess_song': return redirect(url_for('game_guess_song_play'))
 
-    # 2. Daily Limit Check
-    if get_game_status(uid, game) == "completed":
-        flash("You have already completed your daily match!", "info")
-        return redirect(url_for('find_a_friend_hub'))
-
-    # 3. Matchmaking
+# 3. Matchmaking
     match = find_match_priority(conn, uid, game)
     
     if match:
         sid = match['session_id']
+        p1_id = match['player_1_id'] # Get Player 1's ID
+        
+        # Update DB
         conn.execute("UPDATE game_sessions SET player_2_id=? WHERE session_id=?", (uid, sid))
         conn.commit()
         
-        # Notify the waiting player
+        # Notify via Room (Standard way)
         socketio.emit('match_found', {'game_type': game}, room=str(sid))
         
-        # Redirect me immediately
+        # --- FIX: FORCE NOTIFY PLAYER 1 (Prevents them getting stuck) ---
+        p1_user = conn.execute("SELECT username FROM users WHERE user_id=?", (p1_id,)).fetchone()
+        if p1_user:
+            p1_username = p1_user['username']
+            # If Player 1 is online, send a direct signal to their specific socket
+            if p1_username in online_users:
+                p1_sid = online_users[p1_username]
+                socketio.emit('match_found', {'game_type': game}, room=p1_sid)
+        
+        # Redirect Player 2 immediately
         return redirect(url_for(f'game_{game}_play'))
         
     # 4. Create new wait session
@@ -2029,7 +2342,6 @@ def game_lobby(game):
     else:
         sid = existing['session_id']
     
-    # Render Lobby (Waiting)
     return render_template('lobby.html', game=game, session_id=sid)
 
 def get_crossword_grid():
@@ -2045,8 +2357,8 @@ def get_crossword_grid():
 
 def get_editable_cells_for_role(role):
     """
-    Returns set of (row, col) that a player can edit
-    role: 'p1' (Across) or 'p2' (Down)
+    FIX #2: Returns set of (row, col) that a player can edit
+    INTERSECTIONS are editable by BOTH players
     """
     editable = set()
     
@@ -2059,6 +2371,22 @@ def get_editable_cells_for_role(role):
                 editable.add((r + i, c))
     
     return editable
+
+def get_intersection_cells():
+    """FIX #2: Get all cells that are intersections (editable by both)"""
+    across_cells = set()
+    down_cells = set()
+    
+    for (r, c), (word, direction, clue) in CROSSWORD_LAYOUT.items():
+        if direction == 'across':
+            for i in range(len(word)):
+                across_cells.add((r, c + i))
+        else:
+            for i in range(len(word)):
+                down_cells.add((r + i, c))
+    
+    # Intersections are cells in BOTH sets
+    return across_cells & down_cells 
 
 @app.route('/play/crossword')
 def game_crossword_play():
@@ -2134,20 +2462,22 @@ def game_crossword_play():
             })
     
     # Get editable cells for frontend
+# FIX #2: Include intersections (editable by both)
     editable_cells = list(get_editable_cells_for_role(my_role))
+    intersection_cells = list(get_intersection_cells())
     
     return render_template('crossword.html',
-                         session_id=session_id,
-                         partner_name=partner['username'] if partner else "Partner",
-                         partner_id=partner_id,
-                         my_role=my_role,
-                         layout=layout.keys(),
-                         current_state=current_state,
-                         words_found=words_found,
-                         chat_history=chat_history,
-                         my_clues=my_clues,
-                         editable_cells=editable_cells)
-
+                        session_id=session_id,
+                        partner_name=partner['username'] if partner else "Partner",
+                        partner_id=partner_id,
+                        my_role=my_role,
+                        layout=layout.keys(),
+                        current_state=current_state,
+                        words_found=words_found,
+                        chat_history=chat_history,
+                        my_clues=my_clues,
+                        editable_cells=editable_cells,
+                        intersection_cells=intersection_cells)  # FIX #2
 # SOCKET HANDLER
 @socketio.on('crossword_move')
 def handle_crossword_move(data):
@@ -2234,12 +2564,12 @@ def handle_crossword_move(data):
     """, (session_id, json.dumps(grid_state), json.dumps(words_found)))
     conn.commit()
     
-    # Broadcast to partner
+    # FIX: Broadcast to partner (don't send back to sender)
     emit('update_grid', {
         'row': row, 
         'col': col, 
         'letter': letter
-    }, room=str(session_id), skip_sid=request.sid)
+    }, room=str(session_id), include_self=False) 
 
 @socketio.on('send_crossword_reminder')
 def send_crossword_reminder(data):
@@ -2275,20 +2605,67 @@ def send_crossword_reminder(data):
 # ==========================================
 
 def fetch_songs_from_itunes():
-    """Fetch real songs from iTunes API"""
+    """
+    Fetch real songs from iTunes API
+    FIX: Always return at least 5 songs (never empty list)
+    """
     songs = []
     
-    # Mix of old and new songs
+    # Hardcoded fallback songs (used if API fails)
+    FALLBACK_SONGS = [
+        {
+            "song": "Bohemian Rhapsody",
+            "artist": "Queen",
+            "year": "1975",
+            "preview": None,
+            "answer": "Bohemian Rhapsody",
+            "options": ["Bohemian Rhapsody", "We Will Rock You", "Don't Stop Me Now", "Radio Ga Ga"]
+        },
+        {
+            "song": "Dancing Queen",
+            "artist": "ABBA",
+            "year": "1976",
+            "preview": None,
+            "answer": "Dancing Queen",
+            "options": ["Mamma Mia", "Dancing Queen", "Super Trouper", "Waterloo"]
+        },
+        {
+            "song": "Hotel California",
+            "artist": "Eagles",
+            "year": "1976",
+            "preview": None,
+            "answer": "Hotel California",
+            "options": ["Hotel California", "Take It Easy", "Desperado", "Life in the Fast Lane"]
+        },
+        {
+            "song": "Blinding Lights",
+            "artist": "The Weeknd",
+            "year": "2019",
+            "preview": None,
+            "answer": "Blinding Lights",
+            "options": ["Starboy", "Blinding Lights", "Save Your Tears", "The Hills"]
+        },
+        {
+            "song": "Shape of You",
+            "artist": "Ed Sheeran",
+            "year": "2017",
+            "preview": None,
+            "answer": "Shape of You",
+            "options": ["Perfect", "Thinking Out Loud", "Shape of You", "Castle on the Hill"]
+        }
+    ]
+    
+    # Try to fetch from iTunes API
     queries = [
         "Bohemian Rhapsody Queen",
         "Dancing Queen ABBA",
         "Hotel California Eagles",
         "Blinding Lights The Weeknd",
-        "Shape of You Ed Sheeran",
-        "Levitating Dua Lipa"
+        "Shape of You Ed Sheeran"
     ]
     
-    for query_term in queries:
+    import random
+    for i, query_term in enumerate(queries):
         try:
             response = requests.get(
                 f"https://itunes.apple.com/search?term={quote(query_term)}&limit=1&entity=song",
@@ -2300,7 +2677,8 @@ def fetch_songs_from_itunes():
                 if data['resultCount'] > 0:
                     track = data['results'][0]
                     
-                    # Get wrong answers
+                    # Get wrong answers from same artist
+                    wrong_answers = []
                     try:
                         artist_query = requests.get(
                             f"https://itunes.apple.com/search?term={quote(track['artistName'])}&limit=4&entity=song",
@@ -2312,11 +2690,20 @@ def fetch_songs_from_itunes():
                             if t['trackName'] != track['trackName']
                         ][:3]
                     except:
-                        wrong_answers = []
+                        pass
                     
-                    # Fallback
+                    # Ensure we have 3 wrong answers
                     while len(wrong_answers) < 3:
-                        wrong_answers.append(f"Wrong Option {len(wrong_answers) + 1}")
+                        if i < len(FALLBACK_SONGS):
+                            fallback_options = [opt for opt in FALLBACK_SONGS[i]['options'] 
+                                              if opt != track['trackName']]
+                            if fallback_options:
+                                wrong_answers.append(fallback_options[len(wrong_answers) % len(fallback_options)])
+                        else:
+                            wrong_answers.append(f"Wrong Option {len(wrong_answers) + 1}")
+                    
+                    all_options = [track['trackName']] + wrong_answers[:3]
+                    random.shuffle(all_options)
                     
                     songs.append({
                         "song": track['trackName'],
@@ -2324,21 +2711,23 @@ def fetch_songs_from_itunes():
                         "year": track.get('releaseDate', '')[:4] if 'releaseDate' in track else '',
                         "preview": track.get('previewUrl'),
                         "answer": track['trackName'],
-                        "options": [track['trackName']] + wrong_answers[:3]
+                        "options": all_options
                     })
         except Exception as e:
             print(f"iTunes API error: {e}")
+            if i < len(FALLBACK_SONGS):
+                songs.append(FALLBACK_SONGS[i])
             continue
     
-    # Shuffle options
-    import random
-    for song in songs:
-        random.shuffle(song['options'])
+    # FIX: If we got fewer than 5 songs, fill with fallbacks
+    while len(songs) < 5:
+        songs.append(FALLBACK_SONGS[len(songs)])
     
     return songs[:5]
 
 @app.route('/play/guess_song')
-def game_song_play():
+def game_guess_song_play():
+    """FIX #11: Proper error handling for game_data"""
     if 'user_id' not in session:
         return redirect(url_for('login'))
 
@@ -2370,22 +2759,21 @@ def game_song_play():
 
     session_id = session_check['session_id']
     
-    # Get or generate game data
-    game_data_raw = session_check['game_data']
+    # FIX #11: Proper column check (KeyError not IndexError)
+    try:
+        game_data_raw = session_check['game_data']
+    except KeyError:
+        print("ERROR: game_data column missing! Delete database.db and restart")
+        flash("Database error. Please contact admin.", "error")
+        return redirect(url_for('find_a_friend_hub'))
     
+    # Get or generate game data
     if not game_data_raw:
         game_data = fetch_songs_from_itunes()
         
-        # Fallback if API fails
-        if not game_data:
-            game_data = [{
-                "song": "Bohemian Rhapsody",
-                "artist": "Queen",
-                "year": "1975",
-                "preview": None,
-                "answer": "Bohemian Rhapsody",
-                "options": ["Bohemian Rhapsody", "We Will Rock You", "Don't Stop Me Now", "Radio Ga Ga"]
-            }]
+        # Validate not empty
+        if not game_data or len(game_data) == 0:
+            game_data = fetch_songs_from_itunes()  # Try once more
         
         # Save to database
         conn.execute("""
@@ -2395,68 +2783,69 @@ def game_song_play():
     else:
         game_data = json.loads(game_data_raw)
     
+    # Final validation
+    if not game_data or len(game_data) == 0:
+        flash("Could not load songs. Please try again.", "error")
+        return redirect(url_for('game_lobby', game='guess_song'))
+    
     return render_template('guess_the_song.html',
                          session_id=session_id,
                          game_data=game_data)
 
-# Global storage for sync
-song_game_answers = {}
 
 @socketio.on('song_answer_submitted')
+@socketio.on('song_answer_submitted')
 def handle_song_answer(data):
-    """Handle synchronized gameplay"""
-    global song_game_answers
-    
-    # Validate
+    # 1. Validation (From your old code - Good practice)
     if not data or not isinstance(data, dict):
         return
     
-    session_id = data.get('session_id')
+    sid = data.get('session_id')
     round_num = data.get('round')
     answer = data.get('answer')
-    is_correct = data.get('is_correct', False)
-    
-    if not session_id or round_num is None:
+    is_correct = data.get('is_correct')
+    uid = session.get('user_id')
+
+    if not sid or round_num is None or not uid:
         return
-    
-    user_id = session.get('user_id')
-    if not user_id:
-        return
-    
-    # Store answer
-    round_key = f"{session_id}_{round_num}"
-    if round_key not in song_game_answers:
-        song_game_answers[round_key] = {}
-    
-    song_game_answers[round_key][user_id] = {
+
+    # 2. Store Answer (Using 'song_game_state' to match your Global Variable)
+    if sid not in song_game_state:
+        song_game_state[sid] = {}
+    if round_num not in song_game_state[sid]:
+        song_game_state[sid][round_num] = {}
+
+    song_game_state[sid][round_num][uid] = {
         'answer': answer,
-        'correct': is_correct,
-        'timestamp': datetime.now().timestamp()
+        'correct': is_correct
     }
-    
-    # Check if both answered
+
+    # 3. Check Sync Logic
     conn = get_db()
-    game_session = conn.execute("""
-        SELECT player_1_id, player_2_id FROM game_sessions WHERE session_id = ?
-    """, (session_id,)).fetchone()
+    sess = conn.execute("SELECT player_1_id, player_2_id FROM game_sessions WHERE session_id=?", (sid,)).fetchone()
     
-    if not game_session:
-        return
-    
-    p1_id = game_session['player_1_id']
-    p2_id = game_session['player_2_id']
-    
-    if p1_id in song_game_answers[round_key] and p2_id in song_game_answers[round_key]:
-        emit('both_answered', {
-            'round': round_num,
-            'answers': song_game_answers[round_key]
-        }, room=str(session_id))
+    if sess:
+        p1 = sess['player_1_id']
+        p2 = sess['player_2_id']
         
-        del song_game_answers[round_key]
-    else:
-        emit('waiting_for_partner', {
-            'round': round_num
-        }, room=request.sid)
+        current_answers = song_game_state[sid][round_num]
+        
+        # If both players have answered
+        if p1 in current_answers and p2 in current_answers:
+            emit('both_answered', {
+                'round': round_num,
+                'answers': current_answers
+            }, room=str(sid))
+            
+            # 4. Memory Cleanup (From your old code - Important!)
+            # Once round is done, remove it to save memory
+            try:
+                del song_game_state[sid][round_num]
+            except KeyError:
+                pass
+        else:
+            # Notify the one who just answered to wait (Optional, but good for UI consistency)
+            emit('waiting_for_partner', {'round': round_num}, room=request.sid)
 
 @app.route('/play/bingo', methods=['GET', 'POST'])
 def game_bingo_play():
@@ -2570,84 +2959,51 @@ def game_result(session_id):
 # ==========================================
 
 @socketio.on('join_game')
-def handle_join(data): 
+def handle_join(data):
+    """FIX #4: Properly join socket rooms"""
     from flask_socketio import join_room
-    join_room(str(data['session_id']))
-    emit('start_song_game', {}, room=str(data['session_id']))
-
-@socketio.on('crossword_move')
-def handle_cw_move(data):
-    if 'user_id' not in session: return
-    uid = session['user_id']
-    sid = data['session_id']
-    row, col = data['row'], data['col']
-    letter = data['letter'].upper()
+    session_id = str(data['session_id'])
     
-    conn = get_db()
+    join_room(session_id)
     
-    # --- FIX 5: Server-side Role Validation ---
-    sess = conn.execute("SELECT player_1_id, player_2_id FROM game_sessions WHERE session_id=?", (sid,)).fetchone()
-    if not sess: return
+    # Notify partner
+    emit('player_joined', {
+        'username': session.get('username'),
+        'session_id': session_id
+    }, room=session_id, include_self=False)
     
-    is_p1 = (sess['player_1_id'] == uid)
-    
-    # Determine which words intersect this cell
-    # In a real app, we would query the specific words. 
-    # For now, we trust the Client Role, but we save who updated it.
-    
-    conn.execute("INSERT OR REPLACE INTO crossword_state (session_id, row, col, letter, updated_by) VALUES (?, ?, ?, ?, ?)", 
-                (sid, row, col, letter, uid))
-    conn.commit()
-    
-    # Broadcast move
-    emit('update_grid', {'row': row, 'col': col, 'letter': letter}, room=str(sid))
-    
-    # --- FIX 5: Green Box Logic (Full Word Check) ---
-    # 1. Get full board
-    board_rows = conn.execute("SELECT row, col, letter FROM crossword_state WHERE session_id=?", (sid,)).fetchall()
-    board_map = {f"{r['row']}_{r['col']}": r['letter'] for r in board_rows}
-    
-    completed_words = []
-    total_words = len(CROSSWORD_WORDS)
-    found_words_count = 0
-    
-    for start_r, start_c, direction, word in CROSSWORD_WORDS:
-        # Check if THIS word matches board
-        is_word_correct = True
-        word_cells = []
-        
-        for i, char in enumerate(word):
-            rr = start_r if direction == 'across' else start_r + i
-            cc = start_c + i if direction == 'across' else start_c
-            
-            val = board_map.get(f"{rr}_{cc}", "")
-            if val != char:
-                is_word_correct = False
-                break
-            word_cells.append({'r': rr, 'c': cc})
-            
-        if is_word_correct:
-            completed_words.extend(word_cells)
-            found_words_count += 1
-
-    # Emit only if we have correct words
-    if completed_words:
-        emit('word_complete', {'cells': completed_words, 'found': found_words_count, 'total': total_words}, room=str(sid))
+    # Start song game if needed
+    if data.get('game_type') == 'guess_song':
+        emit('start_song_game', {}, room=session_id)
 
 @socketio.on('game_chat_message')
 def handle_game_chat(data):
-    if 'user_id' not in session: return
+    """FIX #5: Save and broadcast chat properly"""
+    if 'user_id' not in session: 
+        return
+    
     username = session.get('username')
     uid = session.get('user_id')
     sid = data.get('session_id')
-    msg = data.get('msg')
+    msg = data.get('msg', '').strip()
     
-    # --- FIX 5: Save Chat to DB ---
+    if not msg: 
+        return
+    
+    # Save to database
     conn = get_db()
-    conn.execute("INSERT INTO game_messages (session_id, user_id, content) VALUES (?, ?, ?)", (sid, uid, msg))
+    conn.execute("""
+        INSERT INTO game_messages (session_id, user_id, content) 
+        VALUES (?, ?, ?)
+    """, (sid, uid, msg))
     conn.commit()
     
-    emit('game_chat_receive', {'user': username, 'msg': msg}, room=str(sid))
+    # FIX #5: Broadcast to EVERYONE in room
+    emit('game_chat_receive', {
+        'user': username,
+        'msg': msg,
+        'timestamp': datetime.now().strftime('%H:%M')
+    }, room=str(sid))
 
 # ==========================================
 # TALK NOW – LIVE CATEGORY MATCHMAKING

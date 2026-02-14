@@ -5,7 +5,7 @@
 {% endblock %}
 
 {% block body %}
-<div class = "d-flex"s>
+<div class = "d-flex">
 
 <div class="container mt-4">
     <div class="forum-head d-flex flex-row col-12 align-items-center">
@@ -41,9 +41,14 @@
                 <h4 class="card-title pr-5">{{ post['title'] | mention | safe }}</h4>
                 
                 <h6 class="card-subtitle mb-2 text-muted">
-                    @<a href="{{ url_for('userprofile', username=post['username']) }}" class="text-decoration-none">
-                        {{ post['username'] }}
-                    </a> | {{ post['created_at'] }}
+                    {% if post['post_type'] == 'daily_prompt' %}
+                        <span></span>
+                    {% else %}
+                        @<a href="{{ url_for('userprofile', username=post['username']) }}" class="text-decoration-none">
+                            {{ post['username'] }}
+                        </a>
+                    {% endif %}
+                    | {{ post['created_at'] }}
                 </h6>
                 <hr>
 
