@@ -482,46 +482,45 @@ def create_post(community_id=None):
         community_name=community_name,
         community_id=community_id
     )
-
-# inidicating your interests
-@app.route("/interests", methods=["POST"])
-def submit_interests():
-
+@app.route("/interests", methods=["GET", "POST"])
+def interests():
     user_id = session.get("user_id")
     if not user_id:
         return redirect(url_for("login"))
 
-    checkbox_interests = [
-        i.strip().lower()
-        for i in request.form.getlist("interests[]")
-        if i.strip()
-    ]
+    if request.method == "POST":
+        # Get checkbox interests
+        checkbox_interests = [
+            i.strip().lower()
+            for i in request.form.getlist("interests[]")
+            if i.strip()
+        ]
 
-    custom_input = request.form.get("custom_interests", "").strip()
+        # Get custom interests
+        custom_input = request.form.get("custom_interests", "").strip()
+        custom_interests = [
+            i.strip().lower()
+            for i in custom_input.split(",")
+            if i.strip()
+        ] if custom_input else []
 
-    custom_interests = [
-        i.strip().lower()
-        for i in custom_input.split(",")
-        if i.strip()
-    ] if custom_input else []
+        all_interests = set(checkbox_interests + custom_interests)
 
-    all_interests = set(checkbox_interests + custom_interests)
+        conn = get_db()
+        for interest in all_interests:
+            try:
+                conn.execute(
+                    "INSERT INTO user_interests (user_id, interest) VALUES (?, ?)",
+                    (user_id, interest)
+                )
+            except sqlite3.IntegrityError:
+                pass
 
-    conn = get_db()
-    for interest in all_interests:
-        try:
-            conn.execute(
-                "INSERT INTO user_interests (user_id, interest) VALUES (?, ?)",
-                (user_id, interest)
-            )
-        except sqlite3.IntegrityError:
-            pass
+        conn.commit()
+        return redirect(url_for("index"))
 
-    conn.commit()
-    conn.close()
-
-    # redirect to main page
-    return redirect(url_for("base"))
+    # If GET request, render the interests form
+    return render_template("interests.html")
 
 #delete posts
 @app.route('/delete_post/<int:post_id>', methods=['POST'])
@@ -790,10 +789,7 @@ def mention_to_link(text):
     return re.sub(mention_pattern, replace_with_link, text)
 
 app.jinja_env.filters['mention'] = mention_to_link
-# Register
-from flask import Flask, render_template, request, redirect, url_for
 
-app = Flask(__name__)
 @app.route("/register", methods=["POST"])
 def register():
     # Extract form fields

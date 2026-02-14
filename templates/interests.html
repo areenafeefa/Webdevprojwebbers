@@ -1,9 +1,17 @@
+{% extends 'base.html' %}
+
+{% block head %}
+
 <title>Interests</title>
+
+{% endblock %}
+
+{% block body %}
 <a href="#" onclick="history.back()">← Back</a>
 
 <h2>What are some of your interests?</h2>
 
-<form action="/interests" method="POST" onsubmit="return validateInterests()">
+<form action="/interests" METHOD = "POST" onsubmit="return validateInterests()">
 
     <!--checkboxes-->
   <div class="interest-group">
@@ -30,6 +38,8 @@
   <br>
   <button type="submit">Enter →</button>
 </form>
+
+{% endblock %}
 
   <!--javascript-->
 <script>

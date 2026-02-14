@@ -30,19 +30,18 @@
 {% block body %}
 <div class="container">
 
-<div class="container mt-4">
+<div class="container">
   <div class="d-flex gap-4 align-items-start">
 
     <!-- MAIN FEED -->
     <div id = "maincontent" class="flex-grow-1">
 
         <div class="forum-head d-flex align-items-center">
-            <h2 class="mb-0">Home</h2>
-            <div class="ms-auto d-flex"> 
-                <span class="fa fa-filter m-3" style="cursor: pointer;"></span>
-                <a href="{{ url_for('create_post')}}" 
-                   class="fa fa-plus m-3 text-decoration-none text-dark"></a>
-            </div>
+                        <h2 class="mb-0 mt-5" style = "font-size: xx-large">Home</h2>
+                        <div class = "ms-auto d-flex mt-5">
+
+                            <a href="{{ url_for('create_post')}}" class="btn btn-primary"> Create Post</a>
+                        </div>
         </div>
         <hr>
 
@@ -85,7 +84,7 @@
                             {{ post['username'] }}
                         </a>
                     {% endif %}
-                    | {{ post['created_at'] }}
+                    | {{ post['created_at'] | timeago }}
                 </h6>
                 <hr>
 
@@ -144,8 +143,8 @@
                             </span>
                         </button>
 
-                        <span class="d-flex align-items-center comment-icon">
-                            <i class="fa fa-comment me-1"></i> Comment
+                        <span class="d-flex btn align-items-center comment-icon">
+                            <i class="fa fa-comment me-1"></i>
                         </span>
 
                     </div>

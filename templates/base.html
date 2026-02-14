@@ -232,7 +232,7 @@
 </nav>
 
         <!-- PAGE CONTENT -->
-        <div id="maincontent" class="flex-grow-1 p-4">
+        <div id="maincontent" class="flex-grow-1">
             {% block body %}{% endblock %}
         </div>
 
@@ -250,12 +250,12 @@
                 </div>
                 <div class="modal-body">
                     {% with messages = get_flashed_messages(category_filter=['login_error']) %}
-                    {% if messages %}
-                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                        {{ messages[0] }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                    {% endif %}
+                        {% if messages %}
+                            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                                {{ messages[0] }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        {% endif %}
                     {% endwith %}
                     <form method="POST" action="{{ url_for('login') }}">
                         <div class="mb-3">
