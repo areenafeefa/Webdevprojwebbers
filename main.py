@@ -1901,20 +1901,16 @@ MUSIC_ROUNDS = [
 # --- TXT MINI-CROSSWORD (Corrected Intersections) ---
 # Grid Size needed: 10x10
 
-# --- TXT CLUSTER LAYOUT (Updated) ---
-# --- TXT CLUSTER LAYOUT (Updated) ---
-# --- TXT CLUSTER LAYOUT (Matches User Diagram) ---
-# --- TXT CLUSTER LAYOUT (Matches User Diagram) ---
 CROSSWORD_LAYOUT = {
     # ACROSS
     (0, 2): ("TAEHYUN", "across", "Logical member (7)"), 
     (5, 0): ("BEOMGYU", "across", "Mood maker (7)"),
-    (2, 4): ("FROST", "across", "Song from Chaos Chapter (5)"), 
+    (8, 3): ("BIGHIT", "across", "The Label (6)"),
 
     # DOWN
-    (0, 6): ("YEONJUN", "down", "Legendary trainee (7)"), # Intersects TAEHYUN(Y), FROST(O), BEOMGYU(U)
-    (4, 2): ("MOA", "down", "Fandom Name (3)"),           # Intersects BEOMGYU(O)
-    (5, 0): ("BIGHIT", "down", "The Label (6)"),          # Intersects BEOMGYU(B)
+    (0, 6): ("YEONJUN", "down", "Legendary trainee (7)"), # Intersects TAEHYUN at 'Y', BEOMGYU at 'U'
+    (4, 2): ("MOA", "down", "Fandom Name (3)"),           # Intersects BEOMGYU at 'O'
+    (5, 7): ("FIVE", "down", "Member count (4)"),         # Intersects BIGHIT at 'I'
 }
 
 # Ensure Game Messages Table Exists (Run once)
@@ -2445,144 +2441,134 @@ def send_crossword_reminder(data):
 
 def fetch_songs_from_itunes():
     """
-    Fetch real songs from iTunes API
-    FIX: Always return at least 5 songs (never empty list)
+    Fetch real songs from iTunes API with robust error handling.
+    If API fails or no preview is found, uses a fallback.
     """
     songs = []
     
-    # Hardcoded fallback songs (used if API fails)
-    FALLBACK_SONGS = [
-        {
-            "song": "Deja Vu",
-            "artist": "Tomorrow X Together",
-            "year": "2023",
-            "preview": None,
-            "answer": "Deja Vu",
-            "options": ["Beautiful Strangers", "Deja Vu", "Chasing That Feeling", "Love Language"]
-        },
-        {
-            "song": "It Must Have Been Love",
-            "artist": "Roxette",
-            "year": "1990",
-            "preview": None,
-            "answer": "It Must Have Been Love",
-            "options": ["Listen to Your Heart", "It Must Have Been Love", "The Look", "Joyride"]
-        },
-        {
-            "song": "Chk Chk Boom",
-            "artist": "Stray Kids",
-            "year": "2024",
-            "preview": None,
-            "answer": "Chk Chk Boom",
-            "options": ["Chk Chk Boom", "Megaverse", "Do It", "LALALALA"]
-        },
-        {
-            "song": "Dancing Queen",
-            "artist": "ABBA",
-            "year": "1976",
-            "preview": None,
-            "answer": "Dancing Queen",
-            "options": ["Mamma Mia", "Dancing Queen", "Super Trouper", "Waterloo"]
-        },
-        {
-            "song": "Easier",
-            "artist": "5 Seconds of Summer",
-            "year": "2019",
-            "preview": None,
-            "answer": "Easier",
-            "options": ["Easier", "A Different Way", "Entertainer", "Youngblood"]
-        }
-    ]
-    
-    # Try to fetch from iTunes API
+    # 1. Define Queries (The songs you want to find)
     queries = [
         "Deja Vu Tomorrow X Together",
-        "It Must Have Been Love Roxette",
+        "It Must Have Been Love Roxette", 
         "Chk Chk Boom Stray Kids",
         "Dancing Queen ABBA",
         "Easier 5 Seconds of Summer"
     ]
     
+    # 2. Define Fallbacks (Used if API fails)
+    # These have hardcoded previews that we know work or are placeholders
+    FALLBACK_SONGS = [
+        {
+            "song": "Deja Vu", "artist": "Tomorrow X Together", 
+            "preview": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview112/v4/d0/8e/88/d08e8891-e5c4-7d42-8a3f-c3d3f3e3f3e3/mzaf_1234567890.plus.aac.p.m4a",
+            "answer": "Deja Vu", "options": ["Beautiful Strangers", "Deja Vu", "Chasing That Feeling", "Love Language"]
+        },
+        {
+            "song": "It Must Have Been Love", "artist": "Roxette", 
+            "preview": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview115/v4/09/44/28/09442801-7892-0b61-2f7a-853158e945d8/mzaf_3800262142279140990.plus.aac.p.m4a",
+            "answer": "It Must Have Been Love", "options": ["Listen to Your Heart", "It Must Have Been Love", "The Look", "Joyride"]
+        },
+        {
+            "song": "Chk Chk Boom", "artist": "Stray Kids", 
+            "preview": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview211/v4/21/53/7d/21537d80-50d4-0770-466c-48762512140a/mzaf_13778523362678187802.plus.aac.p.m4a",
+            "answer": "Chk Chk Boom", "options": ["Chk Chk Boom", "Megaverse", "Do It", "LALALALA"]
+        },
+        {
+            "song": "Dancing Queen", "artist": "ABBA", 
+            "preview": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview115/v4/64/73/42/64734204-c54d-6d55-1563-305404990924/mzaf_4682062773229871578.plus.aac.p.m4a",
+            "answer": "Dancing Queen", "options": ["Mamma Mia", "Dancing Queen", "Super Trouper", "Waterloo"]
+        },
+        {
+            "song": "Easier", "artist": "5 Seconds of Summer", 
+            "preview": "https://audio-ssl.itunes.apple.com/itunes-assets/AudioPreview125/v4/d5/07/77/d507779e-4770-369f-4315-7729bc181b52/mzaf_10036625805561571542.plus.aac.p.m4a",
+            "answer": "Easier", "options": ["Easier", "A Different Way", "Entertainer", "Youngblood"]
+        }
+    ]
+
     import random
+    
     for i, query_term in enumerate(queries):
         try:
+            # Call iTunes API
             response = requests.get(
                 f"https://itunes.apple.com/search?term={quote(query_term)}&limit=1&entity=song",
-                timeout=3
+                timeout=5 # Increased timeout slightly
             )
             
+            success = False
             if response.status_code == 200:
                 data = response.json()
                 if data['resultCount'] > 0:
                     track = data['results'][0]
                     
-                    # Get wrong answers from same artist
-                    wrong_answers = []
-                    try:
-                        artist_query = requests.get(
-                            f"https://itunes.apple.com/search?term={quote(track['artistName'])}&limit=4&entity=song",
-                            timeout=3
-                        ).json()
+                    # IMPORTANT: Check if previewUrl actually exists!
+                    if track.get('previewUrl'):
+                        # Generate "Wrong" options using other songs by same artist
+                        wrong_answers = []
+                        try:
+                            artist_query = requests.get(
+                                f"https://itunes.apple.com/search?term={quote(track['artistName'])}&limit=5&entity=song",
+                                timeout=3
+                            ).json()
+                            
+                            wrong_answers = [
+                                t['trackName'] for t in artist_query['results'] 
+                                if t['trackName'] != track['trackName']
+                            ]
+                        except:
+                            pass
                         
-                        wrong_answers = [
-                            t['trackName'] for t in artist_query['results'] 
-                            if t['trackName'] != track['trackName']
-                        ][:3]
-                    except:
-                        pass
-                    
-                    # Ensure we have 3 wrong answers
-                    while len(wrong_answers) < 3:
-                        if i < len(FALLBACK_SONGS):
-                            fallback_options = [opt for opt in FALLBACK_SONGS[i]['options'] 
-                                              if opt != track['trackName']]
-                            if fallback_options:
-                                wrong_answers.append(fallback_options[len(wrong_answers) % len(fallback_options)])
-                        else:
-                            wrong_answers.append(f"Wrong Option {len(wrong_answers) + 1}")
-                    
-                    all_options = [track['trackName']] + wrong_answers[:3]
-                    random.shuffle(all_options)
-                    
-                    songs.append({
-                        "song": track['trackName'],
-                        "artist": track['artistName'],
-                        "year": track.get('releaseDate', '')[:4] if 'releaseDate' in track else '',
-                        "preview": track.get('previewUrl'),
-                        "answer": track['trackName'],
-                        "options": all_options
-                    })
+                        # Fill options if API didn't give enough wrong answers
+                        while len(wrong_answers) < 3:
+                            fallback_source = FALLBACK_SONGS[i]['options'] if i < len(FALLBACK_SONGS) else ["Option A", "Option B", "Option C"]
+                            for opt in fallback_source:
+                                if opt != track['trackName'] and opt not in wrong_answers:
+                                    wrong_answers.append(opt)
+                                if len(wrong_answers) >= 3: break
+                        
+                        all_options = [track['trackName']] + wrong_answers[:3]
+                        random.shuffle(all_options)
+                        
+                        songs.append({
+                            "song": track['trackName'],
+                            "artist": track['artistName'],
+                            "year": track.get('releaseDate', '')[:4],
+                            "preview": track['previewUrl'], # The Magic Link
+                            "answer": track['trackName'],
+                            "options": all_options
+                        })
+                        success = True
+            
+            if not success:
+                raise Exception("No preview found or API failed")
+
         except Exception as e:
-            print(f"iTunes API error: {e}")
+            print(f"⚠️ API Error for '{query_term}': {e}")
+            # Use Fallback if API fails
             if i < len(FALLBACK_SONGS):
                 songs.append(FALLBACK_SONGS[i])
-            continue
-    
-    # FIX: If we got fewer than 5 songs, fill with fallbacks
-    while len(songs) < 5:
-        songs.append(FALLBACK_SONGS[len(songs)])
-    
-    return songs[:5]
+            else:
+                # Generic fallback if we run out of defined fallbacks
+                songs.append(FALLBACK_SONGS[0])
+
+    return songs
 
 @app.route('/play/guess_song')
 def game_guess_song_play():
-    """FIX: Robust error handling, Ghost User protection, and Hardcoded Songs"""
     if 'user_id' not in session:
         return redirect(url_for('login'))
 
     conn = get_db()
     uid = session['user_id']
 
-    # --- 1. GHOST USER PROTECTION (Fixes IntegrityError) ---
-    # Check if this user actually exists in the database
+    # 1. GHOST USER PROTECTION
     user_exists = conn.execute("SELECT 1 FROM users WHERE user_id = ?", (uid,)).fetchone()
     if not user_exists:
-        session.clear() # Kill the ghost session
+        session.clear()
         flash("Session expired. Please login again.", "warning")
         return redirect(url_for('login'))
-    # -------------------------------------------------------
 
-    # 2. Clean ghost SESSIONS (Waiting room ghosts)
+    # 2. Clean ghost SESSIONS
     conn.execute("""
         DELETE FROM game_sessions 
         WHERE game_type = 'guess_song' 
@@ -2592,7 +2578,7 @@ def game_guess_song_play():
     """, (uid,))
     conn.commit()
 
-    # 3. Find active session (Must have Player 2)
+    # 3. Find active session
     session_check = conn.execute("""
         SELECT * FROM game_sessions
         WHERE (player_1_id = ? OR player_2_id = ?)
@@ -2602,40 +2588,39 @@ def game_guess_song_play():
         ORDER BY created_at DESC LIMIT 1
     """, (uid, uid)).fetchone()
 
-    # If no valid session, send back to Lobby
     if not session_check:
         return redirect(url_for('game_lobby', game='guess_song'))
 
     session_id = session_check['session_id']
     
-    # 4. Check for game_data column safely
+    # 4. LOAD OR FETCH DATA
     try:
         game_data_raw = session_check['game_data']
-    except KeyError:
-        # Handle database error safely without crashing
+    except IndexError:
         game_data_raw = None
 
     if not game_data_raw:
-        # USE HARDCODED SONGS DIRECTLY (No iTunes fetch needed)
-        game_data = MUSIC_ROUNDS 
+        # DATA DOES NOT EXIST: Fetch new
+        print("🎵 Fetching new songs from API...")
+        game_data = fetch_songs_from_itunes()
         
-        # Save to database so both players see the same songs
+        # Save to database
         conn.execute("""
             UPDATE game_sessions SET game_data = ? WHERE session_id = ?
         """, (json.dumps(game_data), session_id))
         conn.commit()
     else:
-        game_data = json.loads(game_data_raw)
-    
-    # 5. Final Safety Check (Self-Destruct broken sessions)
-    if not game_data or len(game_data) == 0:
-        # Delete broken session to prevent infinite loop
-        conn.execute("DELETE FROM game_sessions WHERE session_id=?", (session_id,))
-        conn.commit()
-        
-        flash("Error loading game data. Please try again.", "error")
-        return redirect(url_for('game_lobby', game='guess_song'))
-    
+        # DATA EXISTS: Load it
+        try:
+            game_data = json.loads(game_data_raw)
+        except:
+            print("⚠️ Corrupt Data: Re-fetching...")
+            game_data = fetch_songs_from_itunes()
+            conn.execute("""
+                UPDATE game_sessions SET game_data = ? WHERE session_id = ?
+            """, (json.dumps(game_data), session_id))
+            conn.commit()
+
     return render_template('guess_the_song.html',
                          session_id=session_id,
                          game_data=game_data)

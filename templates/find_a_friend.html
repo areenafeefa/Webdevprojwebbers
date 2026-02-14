@@ -13,11 +13,10 @@
             <h4 class="mb-3" style="color: #333; font-weight: 700;">Play Anytime</h4>
             
             <a href="{{ url_for('game_start_page', game_type='bingo') }}" class="game-card card-bingo mb-4 d-block text-decoration-none" 
-               style="background-color: #dae0f5; border: 1px solid #cdd6f0; color: #212529; position: relative; padding-right: 150px;">
+               style="background-color: white; border: 1px solid #046271; color: #046271; position: relative; padding-top: 20px;">
                 
                 <div class="d-flex w-100 justify-content-between align-items-center">
                     <span style="font-weight: 700;">Bingo</span>
-                    <span style="opacity: 0.7;">Single Player</span>
                 </div>
 
                 {% if status['bingo'] == 'completed' %}
@@ -29,7 +28,7 @@
             <div class="d-flex gap-3">
                 
                 <a href="{{ url_for('game_start_page', game_type='crossword') }}" class="game-card card-crossword w-50 text-decoration-none" 
-                   style="background-color: #fad4d8; border: 1px solid #f8c1c6; color: #212529; position: relative; padding-top: 50px;">
+                   style="background-color: white; border: 1px solid #046271; color: #046271; position: relative; padding-top: 50px;">
                     
                     <div class="d-flex flex-column align-items-center text-center">
                         <span style="font-weight: 700;">Crossword</span>
@@ -44,7 +43,7 @@
                 </a>
                 
                 <a href="{{ url_for('game_start_page', game_type='guess_song') }}" class="game-card card-song w-50 text-decoration-none" 
-                   style="background-color: #e9dcf5; border: 1px solid #decbe6; color: #212529; position: relative; padding-top: 50px;">
+                   style="background-color: white; border: 1px solid #046271; color: #046271; position: relative; padding-top: 50px;">
                     
                     <div class="d-flex flex-column align-items-center text-center">
                         <span style="font-weight: 700;">Guess the Song</span>
@@ -60,7 +59,7 @@
             <h4 class="mb-3 mt-4" style="color: #333; font-weight: 700;">Buddy Up</h4>
 
             <div class="game-card card-bingo mb-4 d-block"
-                 style="background-color: #dae0f5; border: 1px solid #cdd6f0; color: #212529; padding: 15px; border-radius: 8px;">
+                 style="background-color: white; border: 1px solid #046271; color: #046271; position: relative; padding-top: 50px;">
                 
                 <div class="d-flex w-100 justify-content-between align-items-center">
                     <span style="font-weight: 700;">Just Chatting</span>
@@ -86,7 +85,7 @@
                 <div class="mb-4">
                     <small class="text-uppercase text-muted fw-bold" style="font-size: 0.7rem;">Bingo</small>
                     <div class="d-flex align-items-center mt-1">
-                        <span class="h2 mb-0 me-2" style="color: #5a71c8;">{{ stats['streak_bingo'] }}</span>
+                        <span class="h2 mb-0 me-2" style="color: #046271;">{{ stats['streak_bingo'] }}</span>
                         <span class="text-muted small">days</span>
                     </div>
                 </div>
@@ -94,7 +93,7 @@
                 <div class="mb-4">
                     <small class="text-uppercase text-muted fw-bold" style="font-size: 0.7rem;">Crossword</small>
                     <div class="d-flex align-items-center mt-1">
-                        <span class="h2 mb-0 me-2" style="color: #d66d71;">{{ stats['streak_crossword'] }}</span>
+                        <span class="h2 mb-0 me-2" style="color: #046271;">{{ stats['streak_crossword'] }}</span>
                         <span class="text-muted small">days</span>
                     </div>
                 </div>
@@ -102,7 +101,7 @@
                 <div class="mb-2">
                     <small class="text-uppercase text-muted fw-bold" style="font-size: 0.7rem;">Guess the Song</small>
                     <div class="d-flex align-items-center mt-1">
-                        <span class="h2 mb-0 me-2" style="color: #8a73b9;">{{ stats['streak_song'] }}</span>
+                        <span class="h2 mb-0 me-2" style="color: #046271;">{{ stats['streak_song'] }}</span>
                         <span class="text-muted small">days</span>
                     </div>
                 </div>
