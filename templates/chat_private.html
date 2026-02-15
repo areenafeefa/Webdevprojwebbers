@@ -43,14 +43,17 @@
             <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">Messages</h5>
                 <div>
-                    <button class="btn btn-sm btn-outline-success me-1" data-bs-toggle="modal"
-                        data-bs-target="#createGroupModal" title="Create Group Chat">
-                        <i class="fa fa-users"></i>
-                    </button>
-                    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#contactModal"
-                        title="Find People">
-                        <i class="fa fa-plus"></i>
-                    </button>
+
+<button class="btn btn-sm btn-success me-1" data-bs-toggle="modal"
+                        data-bs-target="#createGroupModal" title="Create Group Chat"
+    style="background-color: #198754 !important; border-color: #198754 !important; color: white !important;">
+    <i class="fa fa-users"></i>
+</button>
+<button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#contactModal"
+                        title="Find People"
+    style="background-color: #0d6efd !important; border-color: #0d6efd !important; color: white !important;">
+    <i class="fa fa-plus"></i>
+</button>
                 </div>
             </div>
 
@@ -73,7 +76,7 @@
                                 title="Group Members">
                                 <i class="fa fa-info"></i>
                             </button>
-                        </div>
+             </div>
                         <small class="text-muted d-block text-truncate mt-1">{{ group.last_message or 'No messages yet'
                             }}</small>
                     </div>
@@ -113,23 +116,22 @@
                         <i class="fa fa-lock" style="font-size: 0.7rem;"></i> <span>End-to-end encrypted</span>
                     </div>
                 </div>
+<!-- Friend Info -->
 
                 <div>
-                    <button
-                        class="btn btn-sm btn-primary rounded-circle d-flex justify-content-center align-items-center"
-                        data-bs-toggle="modal" data-bs-target="#friendInfoModal"
-                        style="width: 35px; height: 35px; padding: 0;">
-                        <i class="fa fa-info"></i>
-                    </button>
+<button class="btn btn-sm rounded-circle" style="background-color: #0d6efd !important; color: white !important;"                     data-bs-toggle="modal" data-bs-target="#friendInfoModal">
+    <i class="fa fa-info" ></i>
+</button>
                     <script>console.log("FEATURE DEBUG: Info Button Rendered");</script>
                 </div>
                 {% elif currentGroup %}
                 <div class="d-flex align-items-center">
                     <h5 class="mb-0 me-3"><i class="fa fa-users me-2"></i>{{ currentGroup.name }}</h5>
-                    <button class="btn btn-sm btn-primary rounded-circle" data-bs-toggle="modal"
-                        data-bs-target="#groupInfoModal" title="Group Info">
-                        <i class="fa fa-info"></i>
-                    </button>
+<!-- Group Info -->
+<button class="btn btn-sm btn-primary rounded-circle" data-bs-toggle="modal"
+                        data-bs-target="#groupInfoModal" title="Group Info" style="background-color: #0d6efd !important; color: white !important;">
+    <i class="fa fa-info"></i>
+</button>
                 </div>
                 {% else %}
                 <h5 class="mb-0">Select a chat</h5>

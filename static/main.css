@@ -290,3 +290,7 @@ h6 {
 /* Optional: subtle color for muted headings if needed */
 h1, h2, h3 { color: var(--color-dark); }
 h4, h5, h6 { color: var(--color-muted); }
+
+.card-text {
+  color: rgb(28, 28, 28);
+}

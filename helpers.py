@@ -21,19 +21,18 @@ def init_db():
     conn = sqlite3.connect(DATABASE)
 
     conn.execute("""
-    CREATE TABLE IF NOT EXISTS notifications (
-        notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,            -- receiver
-        actor_id INTEGER,
-        type TEXT NOT NULL,
-        reference_id INTEGER,
-        message TEXT NOT NULL,
-        link TEXT,
-        is_read INTEGER DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE,
-        FOREIGN KEY(actor_id) REFERENCES users(user_id) ON DELETE CASCADE
-    )
+CREATE TABLE IF NOT EXISTS chatmessages (
+    message_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    sender_id INTEGER NOT NULL,
+    receiver_id INTEGER NOT NULL,
+    message TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES game_sessions(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (sender_id) REFERENCES users(user_id),
+    FOREIGN KEY (receiver_id) REFERENCES users(user_id)
+);
+
     """)
 
     conn.execute("CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id)")

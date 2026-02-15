@@ -1,0 +1,8 @@
+#maincontent {
+  flex: 1;
+  height: calc(100vh - var(--navbar-height));
+  overflow-y: auto;
+  padding: 0 28px 0 28px;
+  display: flex;
+  flex-direction: column;
+}
