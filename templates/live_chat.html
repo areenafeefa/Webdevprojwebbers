@@ -24,10 +24,6 @@
             {{ msg.created_at }}
           </div>
         </div>
-
-        {% if msg.sender_id == session['user_id'] %}
-          <img src="{{ url_for('static', filename='profile_pics/default.png') }}" class="rounded-circle ms-2" width="40" height="40">
-        {% endif %}
       </div>
     {% endfor %}
   </div>
@@ -41,10 +37,10 @@
   <!-- Actions -->
   <div class="d-flex justify-content-center gap-2 mt-3">
     <form method="POST" action="{{ url_for('leave_live_chat', session_id=session_id) }}">
-      <button type="submit" class="btn btn-outline-danger rounded-pill">Leave Chat</button>
+      <button type="submit" class="btn btn-outline-primary rounded-pill">Leave Chat</button>
     </form>
-    <form method="POST" action="{{ url_for('send_live_chat_friend_request', partner_id=partner_id) }}">
-      <button type="submit" class="btn btn-success rounded-pill">Add Friend</button>
+    <form method="POST" action="{{ url_for('send_friend_request', username = partner) }}">
+      <button type="submit" class="btn btn-primary rounded-pill">Add Friend</button>
     </form>
   </div>
 </div>
