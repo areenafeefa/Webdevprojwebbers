@@ -4,45 +4,47 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='phoebe.css') }}">
 
 <style>
-    /* FIXED: No more circles/dots */
+    /* 10x10 GRID - SQUARED CORNERS */
     .cw-board {
         display: grid;
-        grid-template-columns: repeat(12, 40px);
-        grid-template-rows: repeat(12, 40px);
+        grid-template-columns: repeat(10, 45px);
+        grid-template-rows: repeat(10, 45px);
         gap: 2px;
         background: #2c3e50;
-        border: 4px solid #2c3e50;
+        border: 3px solid #046271;
         margin: 0 auto;
         width: fit-content;
+        border-radius: 0;
     }
 
     .cw-cell {
-        width: 40px;
-        height: 40px;
+        width: 45px;
+        height: 45px;
         text-align: center;
         font-weight: bold;
         text-transform: uppercase;
         border: none;
-        font-size: 18px;
+        font-size: 20px;
         background: white;
+        transition: all 0.2s ease;
     }
     
     .cw-cell:focus {
         background-color: #fff9c4;
-        outline: 2px solid #ffc107;
+        outline: 2px solid #046271;
     }
 
-    /* FIXED: Solid background, no circles */
     .empty-cell {
         background: #2c3e50;
-        width: 40px;
-        height: 40px;
+        width: 45px;
+        height: 45px;
         border: none;
     }
 
     .cw-cell.correct-word {
-        background-color: #d4edda !important;
-        color: #155724 !important;
+        background-color: #b8e6ed !important;
+        color: #046271 !important;
+        font-weight: bold;
     }
 
     .cw-cell.not-editable {
@@ -53,47 +55,34 @@
     .cw-sidebar {
         background: white;
         padding: 20px;
-        border-radius: 12px;
+        border-radius: 0;
         box-shadow: 0 4px 12px rgba(0,0,0,0.08);
         height: 100%;
         display: flex;
         flex-direction: column;
     }
-
-    .chat-box {
-        flex-grow: 1;
-        border: 1px solid #e9ecef;
-        background: #f8f9fa;
-        border-radius: 8px;
-        padding: 10px;
-        overflow-y: auto;
-        margin-bottom: 10px;
-        max-height: 200px;
-    }
-
-    .msg {
-        margin-bottom: 6px;
-        font-size: 0.9rem;
-        word-wrap: break-word;
-    }
-
-    .msg b {
-        color: #555;
-        margin-right: 4px;
-    }
+    
+    .partner-info { background: #f0f8ff; border: 2px solid #046271; padding: 10px; margin-bottom: 10px; }
+    .partner-link { color: #046271 !important; font-weight: bold; text-decoration: none; }
+    .chat-box { flex-grow: 1; border: 1px solid #e9ecef; background: #f8f9fa; padding: 10px; overflow-y: auto; margin-bottom: 10px; max-height: 200px; }
+    .msg { margin-bottom: 6px; font-size: 0.9rem; word-wrap: break-word; }
+    .msg b { color: #555; margin-right: 4px; }
 </style>
 
 <div class="container-fluid mt-3">
+    <div class="mb-3">
+        <a href="{{ url_for('find_a_friend_hub') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="fa fa-arrow-left"></i> Back to Hub
+        </a>
+    </div>
+    
     <div class="row">
-        <!-- Crossword Grid (Left 9 columns) -->
         <div class="col-md-9 d-flex justify-content-center">
             <div>
-                <h4 class="mb-3 text-center">Crossword Puzzle</h4>
-                
-                <!-- Grid -->
+                <h4 class="mb-3 text-center">TXT Crossword Puzzle</h4>
                 <div class="cw-board">
-                    {% for r in range(12) %}
-                        {% for c in range(12) %}
+                    {% for r in range(10) %}
+                        {% for c in range(10) %}
                             {% if (r, c) in layout %}
                                 <input type="text" 
                                     maxlength="1" 
@@ -114,29 +103,27 @@
             </div>
         </div>
 
-        <!-- Sidebar (Right 3 columns) -->
         <div class="col-md-3">
             <div class="cw-sidebar">
-                <div class="mb-3">
-                    <h5 class="fw-bold">Crossword</h5>
-                    <p class="small text-muted mb-1">
-                        Partner: <strong id="partnerName">{{ partner_name }}</strong>
-                    </p>
-                    <div class="alert alert-info py-2 small mb-0">
-                        Your Role: <strong>{% if my_role == 'p1' %}ACROSS (→){% else %}DOWN (↓){% endif %}</strong>
-                        <br>
-                        <span style="font-size: 0.85em">Type correct letters only!</span>
-                    </div>
+                <h5 class="fw-bold">Crossword</h5>
+                
+                <div class="partner-info">
+                    <small class="text-muted">Playing with:</small><br>
+                    <a href="{{ url_for('userprofile', username=partner_name) }}" class="partner-link">
+                        @{{ partner_name }}
+                    </a>
+                </div>
+
+                <div class="alert alert-info py-2 small mb-3">
+                    Your Role: <strong>{% if my_role == 'p1' %}ACROSS (→){% else %}DOWN (↓){% endif %}</strong>
                 </div>
 
                 <hr>
-
-                <!-- Your Clues -->
                 <div class="mb-3" style="max-height: 200px; overflow-y: auto;">
                     <h6 class="fw-bold small">Your Clues:</h6>
                     <div class="small">
                         {% for clue in my_clues %}
-                        <div class="mb-2 p-2 bg-light rounded">
+                        <div class="mb-2 p-2 bg-light">
                             <strong>{{ clue.word|length }} letters:</strong> {{ clue.clue }}
                         </div>
                         {% endfor %}
@@ -144,8 +131,6 @@
                 </div>
 
                 <hr>
-
-                <!-- Chat or Congrats -->
                 <div id="chatSection">
                     <h6 class="fw-bold small mb-2">Team Chat</h6>
                     <div class="chat-box" id="gameChat">
@@ -157,32 +142,7 @@
                         <input type="text" id="chatInput" class="form-control" placeholder="Type..." onkeypress="if(event.key==='Enter') sendChat()">
                         <button class="btn btn-primary" onclick="sendChat()">Send</button>
                     </div>
-                    
-                    <!-- Reminder Button -->
-                    <button class="btn btn-sm btn-warning w-100 mt-2" onclick="sendReminder()">
-                        <i class="fa fa-bell"></i> Remind Partner
-                    </button>
                 </div>
-
-                <!-- Congratulations Message (Hidden by default) -->
-                <div id="congratsMessage" style="display: none;">
-                    <h4 class="text-success">🎉 Congratulations! 🎉</h4>
-                    <p class="small">You completed the crossword together!</p>
-                    <a href="{{ url_for('userprofile', username=partner_name) }}" class="btn btn-primary btn-sm mt-2 w-100">
-                        <i class="fa fa-user-plus"></i> Connect with {{ partner_name }}
-                    </a>
-                    <a href="{{ url_for('find_a_friend_hub') }}" class="btn btn-secondary btn-sm mt-2 w-100">
-                        Back to Hub
-                    </a>
-                </div>
-
-                <!-- Finish Button -->
-                <form action="{{ url_for('game_complete', game_type='crossword') }}" method="POST" class="mt-3">
-                    <input type="hidden" name="session_id" value="{{ session_id }}">
-                    <button class="btn btn-success w-100" id="btnComplete" style="display:none;">
-                        Finish Game
-                    </button>
-                </form>
             </div>
         </div>
     </div>
@@ -194,56 +154,87 @@
     const sessionId = {{ session_id }};
     const myRole = "{{ my_role }}";
     
+    // Convert editable cells list to a Set for fast lookup
     const editableCells = new Set();
     {% for r, c in editable_cells %}
         editableCells.add("{{r}}_{{c}}");
     {% endfor %}
     
-    // Store layout for validation
-    const crosswordLayout = {{ layout|tojson }};
-    
-    // Join game room
-    socket.emit('join_game', {
-        session_id: sessionId, 
-        game_type: 'crossword'
-    });
-    console.log('✅ Joined crossword room:', sessionId);
+    const crosswordLayoutData = {{ layout_data|tojson }};
+    const allWords = {{ all_words|tojson }}; // Now correctly contains ALL words (e.g. 7 items)
+    let completedWords = new Set({{ words_found|tojson }});
 
-    let completedWords = {{ words_found|tojson }};
-    const totalWords = Object.keys(crosswordLayout).length;
+    socket.emit('join_game', {session_id: sessionId, game_type: 'crossword'});
 
     function canEditCell(r, c) {
         return editableCells.has(`${r}_${c}`);
     }
 
-    // NEW: Get correct letter for a cell
-    function getCorrectLetterForCell(r, c) {
-        for (let key in crosswordLayout) {
-            const [word, direction, clue] = crosswordLayout[key];
-            const coords = key.replace(/[()]/g, '').split(',').map(x => parseInt(x.trim()));
-            const startR = coords[0];
-            const startC = coords[1];
+    // STRICT VALIDATION FUNCTION
+    function checkWordCompletion() {
+        const wordGroups = {};
+        
+        // 1. Build Word Groups from Layout Data
+        // This ensures we check every word defined in the puzzle
+        for (let key in crosswordLayoutData) {
+            const data = crosswordLayoutData[key];
+            const wordId = `${data.word}_${data.direction}`;
             
-            for (let i = 0; i < word.length; i++) {
-                let cellR, cellC;
-                if (direction === 'across') {
-                    cellR = startR;
-                    cellC = startC + i;
-                } else {
-                    cellR = startR + i;
-                    cellC = startC;
-                }
-                
-                if (cellR === r && cellC === c) {
-                    return word[i].toUpperCase();
+            if (!wordGroups[wordId]) {
+                wordGroups[wordId] = [];
+            }
+            
+            const [r, c] = key.split(',').map(Number);
+            wordGroups[wordId].push({
+                r: r, 
+                c: c, 
+                expected: data.letter
+            });
+        }
+        
+        let newlyCompleted = false;
+
+        // 2. Check each word group
+        for (let wordId in wordGroups) {
+            const cells = wordGroups[wordId];
+            let isComplete = true;
+
+            // Check every cell in this word
+            for (let cellData of cells) {
+                const el = document.getElementById(`cell-${cellData.r}-${cellData.c}`);
+                if (!el || el.value.toUpperCase() !== cellData.expected.toUpperCase()) {
+                    isComplete = false;
+                    break; 
                 }
             }
+
+            if (isComplete) {
+                if (!completedWords.has(wordId)) {
+                    completedWords.add(wordId);
+                    newlyCompleted = true;
+                    console.log("✅ Completed:", wordId);
+                }
+                
+                // Highlight correct word
+                cells.forEach(c => {
+                    const el = document.getElementById(`cell-${c.r}-${c.c}`);
+                    if(el) {
+                        el.classList.add('correct-word');
+                        el.readOnly = true; 
+                    }
+                });
+            }
         }
-        return null;
+
+        // 3. Check for Global Win
+        // Only trigger if ALL defined words are in the completed set
+        if (completedWords.size >= allWords.length) {
+            showCongratulations();
+        }
     }
 
-    // Mark non-editable cells on load
     window.addEventListener('DOMContentLoaded', function() {
+        // Mark non-editable cells visually
         document.querySelectorAll('.cw-cell').forEach(cell => {
             const r = parseInt(cell.dataset.row);
             const c = parseInt(cell.dataset.col);
@@ -252,65 +243,48 @@
             }
         });
         
-        console.log(`Initial: ${completedWords.length}/${totalWords} words`);
-        if (completedWords.length >= totalWords) {
-            showCongratulations();
-        }
+        // Initial check in case reloading page
+        checkWordCompletion();
     });
 
     function handleKey(e, r, c) {
         const cell = document.getElementById(`cell-${r}-${c}`);
-        
         if (e.key === "Backspace") {
-            if (cell.value === "") {
-                e.preventDefault();
-                moveFocus(r, c, -1);
-            }
-        }
-        else if (e.key === "ArrowRight") {
-            e.preventDefault();
-            focusCell(r, c+1);
-        }
-        else if (e.key === "ArrowLeft") {
-            e.preventDefault();
-            focusCell(r, c-1);
-        }
-        else if (e.key === "ArrowDown") {
-            e.preventDefault();
-            focusCell(r+1, c);
-        }
-        else if (e.key === "ArrowUp") {
-            e.preventDefault();
-            focusCell(r-1, c);
+            if (cell.value === "") moveFocus(r, c, -1);
+        } else if (e.key === "ArrowRight") {
+            e.preventDefault(); focusCell(r, c+1);
+        } else if (e.key === "ArrowLeft") {
+            e.preventDefault(); focusCell(r, c-1);
+        } else if (e.key === "ArrowDown") {
+            e.preventDefault(); focusCell(r+1, c);
+        } else if (e.key === "ArrowUp") {
+            e.preventDefault(); focusCell(r-1, c);
         }
     }
 
-    // FIXED: Validation added
     function handleInput(el, r, c) {
         if (!canEditCell(r, c)) {
             el.value = "";
-            alert("This cell is not in your direction! You can only edit " + (myRole === 'p1' ? "ACROSS" : "DOWN") + " words.");
+            alert("This cell is not in your direction!");
             return;
         }
         
         let val = el.value.toUpperCase();
         
-        // VALIDATION: Check if letter is correct
-        const correctLetter = getCorrectLetterForCell(r, c);
-        if (correctLetter && val && val !== correctLetter) {
-            // Wrong letter - reject it
-            el.value = "";
+        // Wrong letter visual feedback (red flash)
+        // Note: We don't clear it immediately to allow trial/error, 
+        // but checking strictly in background.
+        const key = `${r},${c}`;
+        if (crosswordLayoutData[key] && val && val !== crosswordLayoutData[key].letter) {
             el.style.backgroundColor = '#ffcccc';
-            setTimeout(() => {
-                el.style.backgroundColor = 'white';
-            }, 300);
-            console.log(`❌ Wrong letter! Expected: ${correctLetter}, got: ${val}`);
-            return;
+            setTimeout(() => el.style.backgroundColor = 'white', 500);
+        } else {
+            el.style.backgroundColor = 'white';
         }
         
         el.value = val;
-        console.log('📤 Sending move:', {row: r, col: c, letter: val});
         
+        // Send move to server
         socket.emit('crossword_move', {
             session_id: sessionId, 
             row: r, 
@@ -318,65 +292,42 @@
             letter: val || ''
         });
 
+        // Re-validate entire board
+        checkWordCompletion();
+
+        // Auto-advance
         if (val.length === 1) {
             moveFocus(r, c, 1);
         }
     }
 
     function moveFocus(r, c, direction) {
-        let nextR = r;
-        let nextC = c;
-
-        if (myRole === 'p1') {
-            nextC = c + direction;
-        } else {
-            nextR = r + direction;
-        }
-
+        let nextR = r, nextC = c;
+        if (myRole === 'p1') nextC = c + direction;
+        else nextR = r + direction;
         focusCell(nextR, nextC);
     }
 
     function focusCell(r, c) {
         let el = document.getElementById(`cell-${r}-${c}`);
-        if (el && canEditCell(r, c)) {
-            el.focus();
-        }
+        if (el && canEditCell(r, c)) el.focus();
     }
 
-    // Socket events
     socket.on('update_grid', (data) => {
-        console.log('📥 Received update:', data);
-        
         let cell = document.getElementById(`cell-${data.row}-${data.col}`);
         if(cell) {
             cell.value = data.letter;
+            // Visual flash for update
             cell.style.backgroundColor = '#cce5ff';
             setTimeout(() => {
                 const isEditable = canEditCell(data.row, data.col);
-                cell.style.backgroundColor = isEditable ? 'white' : '#e9ecef';
+                if (!cell.classList.contains('correct-word')) {
+                     cell.style.backgroundColor = isEditable ? 'white' : '#e9ecef';
+                }
             }, 500);
-        }
-    });
-
-    socket.on('word_complete', (data) => {
-        console.log('Word complete:', data);
-        
-        data.cells.forEach(pos => {
-            let cell = document.getElementById(`cell-${pos.r}-${pos.c}`);
-            if(cell) {
-                cell.classList.add('correct-word');
-                cell.readOnly = true;
-            }
-        });
-        
-        completedWords.push(data.word);
-        console.log(`Progress: ${data.found}/${data.total} words`);
-        
-        if (data.found >= data.total) {
-            console.log('🎉 Crossword complete!');
-            setTimeout(() => {
-                showCongratulations();
-            }, 1000);
+            
+            // Re-validate when partner moves too
+            checkWordCompletion();
         }
     });
 
@@ -384,7 +335,6 @@
         let input = document.getElementById('chatInput');
         if(input.value.trim()) {
             const msg = input.value.trim();
-            
             let box = document.getElementById('gameChat');
             const msgDiv = document.createElement('div');
             msgDiv.className = 'msg';
@@ -392,20 +342,13 @@
             box.appendChild(msgDiv);
             box.scrollTop = box.scrollHeight;
             
-            socket.emit('game_chat_message', {
-                session_id: sessionId, 
-                msg: msg
-            });
-            
+            socket.emit('game_chat_message', {session_id: sessionId, msg: msg});
             input.value = '';
         }
     }
 
     socket.on('game_chat_receive', (data) => {
-        if (data.user === "{{ session.get('username') }}") {
-            return;
-        }
-        
+        if (data.user === "{{ session.get('username') }}") return;
         let box = document.getElementById('gameChat');
         const msgDiv = document.createElement('div');
         msgDiv.className = 'msg';
@@ -414,20 +357,30 @@
         box.scrollTop = box.scrollHeight;
     });
 
-    function sendReminder() {
-        socket.emit('send_crossword_reminder', {session_id: sessionId});
-        alert('Reminder sent to your partner!');
-    }
-
     function showCongratulations() {
-        document.getElementById('chatSection').style.display = 'none';
-        document.getElementById('congratsMessage').style.display = 'block';
-        document.getElementById('btnComplete').style.display = 'block';
+        if(document.getElementById('winBanner')) return; // Already showing
         
-        document.querySelectorAll('.cw-cell').forEach(cell => {
-            cell.disabled = true;
+        const banner = document.createElement('div');
+        banner.id = 'winBanner';
+        banner.className = 'alert alert-success d-flex align-items-center mb-4';
+        banner.style.position = 'fixed'; banner.style.top = '20px'; banner.style.left = '50%'; 
+        banner.style.transform = 'translateX(-50%)'; banner.style.zIndex = '9999';
+        banner.style.backgroundColor = '#b8e6ed'; banner.style.color = '#046271'; banner.style.borderColor = '#046271';
+        banner.innerHTML = `<strong>PUZZLE COMPLETE!</strong> Great job!`;
+        document.body.appendChild(banner);
+        
+        fetch("{{ url_for('game_complete', game_type='crossword') }}", {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `session_id=${sessionId}`
         });
+        
+        document.querySelectorAll('.cw-cell').forEach(cell => cell.readOnly = true);
+        
+        setTimeout(() => {
+            banner.style.opacity = '0';
+            setTimeout(() => banner.remove(), 500);
+        }, 5000);
     }
 </script>
-
 {% endblock %}
