@@ -21,6 +21,15 @@ def init_db():
     conn = sqlite3.connect(DATABASE)
 
     conn.execute("""
+CREATE TABLE IF NOT EXISTS user_interests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    interest TEXT NOT NULL,
+    UNIQUE(user_id, interest),
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+)
+""")
+    conn.execute("""
 CREATE TABLE IF NOT EXISTS chatmessages (
     message_id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id INTEGER NOT NULL,

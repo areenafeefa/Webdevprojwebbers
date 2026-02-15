@@ -51,7 +51,7 @@
                                     Joined
                                 </button>
                             </form>
-                            <a href="{{ url_for('create_post')}}" class="btn btn-primary"> Create Post</a>
+                            <a href="{{ url_for('create_post', community_id = community['community_id'] )}}" class="btn btn-primary"> Create Post</a>
                         </div>
                         {% endif %}
                     </div>

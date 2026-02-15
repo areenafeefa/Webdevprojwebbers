@@ -9,83 +9,182 @@
   <div id="chat-box" class="border rounded p-3 mb-3" style="height:400px; overflow-y:auto; background:#f9f9f9;">
     {% for msg in messages %}
       <div class="d-flex mb-3 {% if msg.sender_id == session['user_id'] %}justify-content-end{% else %}justify-content-start{% endif %}">
+        
         {% if msg.sender_id != session['user_id'] %}
           <img src="{{ url_for('static', filename='profile_pics/default.png') }}" class="rounded-circle me-2" width="40" height="40">
         {% endif %}
 
         <div class="d-flex flex-column {% if msg.sender_id == session['user_id'] %}align-items-end{% else %}align-items-start{% endif %}" style="max-width:70%;">
+          
           <div class="fw-bold mb-1" style="font-size:0.85rem; color:#555;">
             {{ msg.sender_name }}
           </div>
+
           <div class="p-2 rounded {% if msg.sender_id == session['user_id'] %}bg-primary text-white{% else %}bg-light text-dark{% endif %}" style="word-wrap:break-word;">
             {{ msg.message }}
           </div>
+
           <div style="font-size:0.7rem; color:#888; margin-top:2px;">
             {{ msg.created_at }}
           </div>
+
         </div>
       </div>
     {% endfor %}
   </div>
 
+
   <!-- Message form -->
-  <form method="POST" class="d-flex gap-2 mb-2">
+  <form id="chat-form" class="d-flex gap-2 mb-2">
     <input type="text" name="message" class="form-control rounded-pill" placeholder="Type your message..." required>
     <button type="submit" class="btn btn-primary rounded-pill px-4">Send</button>
   </form>
 
+
   <!-- Actions -->
   <div class="d-flex justify-content-center gap-2 mt-3">
+
+    <!-- Leave chat -->
     <form method="POST" action="{{ url_for('leave_live_chat', session_id=session_id) }}">
-      <button type="submit" class="btn btn-outline-primary rounded-pill">Leave Chat</button>
+      <button type="submit" class="btn btn-outline-primary rounded-pill">
+        Leave Chat
+      </button>
     </form>
-    <form method="POST" action="{{ url_for('send_friend_request', username = partner) }}">
-      <button type="submit" class="btn btn-primary rounded-pill">Add Friend</button>
-    </form>
+
+    <!-- Add Friend AJAX button -->
+    <button id="add-friend-btn" class="btn btn-primary rounded-pill">
+      Add Friend
+    </button>
+
   </div>
+
 </div>
 
-<script src="//cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.0/socket.io.min.js"></script>
-<script>
-  const socket = io();
 
-  const chatBox = document.getElementById('chat-box');
+
+<script src="//cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.0/socket.io.min.js"></script>
+
+<script>
+
+const socket = io();
+
+const chatBox = document.getElementById('chat-box');
+const form = document.getElementById('chat-form');
+const addFriendBtn = document.getElementById('add-friend-btn');
+
+
+// Auto scroll to bottom on load
+chatBox.scrollTop = chatBox.scrollHeight;
+
+
+// Join socket room
+socket.emit('join', {
+  room: "{{ session_id }}"
+});
+
+
+// Send message
+form.addEventListener('submit', function(e) {
+
+  e.preventDefault();
+
+  const input = form.querySelector('input[name="message"]');
+  const message = input.value.trim();
+
+  if (!message) return;
+
+  socket.emit('live_chat_message', {
+
+    user_id: {{ session['user_id'] }},
+    session_id: "{{ session_id }}",
+    sender_name: "{{ session['username'] }}",
+    message: message
+
+  });
+
+  input.value = '';
+
+});
+
+
+// Receive message
+socket.on('new_live_message', function(data) {
+
+  const isMe = data.user_id == {{ session['user_id'] }};
+
+  const div = document.createElement('div');
+
+  div.className = `d-flex mb-3 ${isMe ? 'justify-content-end' : 'justify-content-start'}`;
+
+  div.innerHTML = `
+    ${!isMe ? `<img src="{{ url_for('static', filename='profile_pics/default.png') }}" class="rounded-circle me-2" width="40" height="40">` : ``}
+
+    <div class="d-flex flex-column ${isMe ? 'align-items-end' : 'align-items-start'}" style="max-width:70%;">
+
+      <div class="fw-bold mb-1" style="font-size:0.85rem; color:#555;">
+        ${data.sender_name}
+      </div>
+
+      <div class="p-2 rounded ${isMe ? 'bg-primary text-white' : 'bg-light text-dark'}" style="word-wrap:break-word;">
+        ${data.message}
+      </div>
+
+      <div style="font-size:0.7rem; color:#888; margin-top:2px;">
+        ${data.created_at}
+      </div>
+
+    </div>
+  `;
+
+  chatBox.appendChild(div);
+
   chatBox.scrollTop = chatBox.scrollHeight;
 
-  // Join session room
-  socket.emit('join', {room: "{{ session_id }}"});
+});
 
-  // Send message in real-time
-  const form = document.querySelector('form');
-  form.addEventListener('submit', e => {
-    e.preventDefault();
-    const input = form.querySelector('input[name="message"]');
-    const message = input.value.trim();
-    if(!message) return;
-    socket.emit('live_chat_message', {
-      user_id: {{ session['user_id'] }},
-      session_id: "{{ session_id }}",
-      sender_name: "{{ session['username'] }}",
-      message: message
+
+// AJAX Add Friend
+addFriendBtn.addEventListener('click', async function() {
+
+  try {
+
+    const response = await fetch("{{ url_for('send_friend_request_live', username=partner_name) }}", {
+
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      }
+
     });
-    input.value = '';
-  });
 
-  // Receive new message
-  socket.on('new_live_message', data => {
-    const div = document.createElement('div');
-    div.className = 'd-flex mb-3 justify-content-start';
-    div.innerHTML = `
-      <img src="{{ url_for('static', filename='profile_pics/default.png') }}" class="rounded-circle me-2" width="40" height="40">
-      <div class="d-flex flex-column align-items-start" style="max-width:70%;">
-        <div class="fw-bold mb-1" style="font-size:0.85rem; color:#555;">${data.sender_name}</div>
-        <div class="p-2 rounded bg-light text-dark" style="word-wrap:break-word;">${data.message}</div>
-        <div style="font-size:0.7rem; color:#888; margin-top:2px;">${data.created_at}</div>
-      </div>
-    `;
-    chatBox.appendChild(div);
-    chatBox.scrollTop = chatBox.scrollHeight;
-  });
+    if (response.ok) {
+
+      addFriendBtn.innerText = "Friend Request Sent";
+
+      addFriendBtn.disabled = true;
+
+      addFriendBtn.classList.remove("btn-primary");
+
+      addFriendBtn.classList.add("btn-success");
+
+    } 
+    
+    else {
+
+      alert("Failed to send friend request");
+
+    }
+
+  }
+
+  catch (err) {
+
+    alert("Error sending friend request");
+
+  }
+
+});
+
 </script>
 
 {% endblock %}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block body %}
+
+<style>
+  /* Increase card size and spacing */
+  .community-card {
+    transition: transform 0.2s;
+  }
+
+  .community-card:hover {
+    transform: translateY(-5px); /* subtle hover lift */
+    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+  }
+
+  .community-card .card-title {
+    font-size: 1.25rem;
+  }
+
+  .community-card .card-text {
+    font-size: 0.95rem;
+  }
+
+  .community-row {
+    row-gap: 2rem; /* spacing between rows */
+  }
+</style>
+<div class = "mt-5">
+<div class="row community-row ">
+  {% if communities %}
+      {% for c in communities %}
+      <div class="col-lg-4 col-md-6">
+          <div class="card h-100 shadow-sm border-0 community-card">
+              <div class="card-body d-flex flex-column">
+                  <h5 class="card-title fw-bold">{{ c['name'] }}</h5>
+                  <p class="card-text text-muted small">{{ c['description'] or "No description available." }}</p>
+                  <a href="{{ url_for('community', community_id=c['community_id']) }}" class="btn btn-sm btn-outline-primary mt-auto rounded-pill">View Community</a>
+              </div>
+          </div>
+      </div>
+      {% endfor %}
+  {% else %}
+      <p class="text-muted px-2 italic">Not joined any communities yet.</p>
+  {% endif %}
+</div>
+</div>
+
+{% endblock %}

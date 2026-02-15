@@ -31,7 +31,7 @@
                 <button id="sidebarToggle" class="btn me-2">
                     <i class="fa fa-bars"></i>
                 </button>
-                <a class="navbar-brand mb-0" href="{{ url_for('index') }}">WEBDEV</a>
+                <a class="navbar-brand mb-0" href="{{ url_for('index') }}">BRIDGE@SG</a>
             </div>
 
             <!-- Mobile collapse button -->
@@ -55,7 +55,7 @@
                     {% if logged_in %}
                     <!-- AI Help Bot -->
                     <li class="nav-item ">
-                        <a class="nav-link " href="#" data-bs-toggle="modal"
+                        <a class="nav-link rounded-pill " href="#" data-bs-toggle="modal"
                             data-bs-target="#aiChatModal">
                             <i class="fa fa-android" style=""></i>
                         </a>
@@ -63,7 +63,7 @@
 
                     <!-- Notification Bell -->
                     <li class="nav-item dropdown">
-                        <a class="nav-link " href="#" data-bs-toggle="dropdown">
+                        <a class="nav-link rounded-pill " href="#" data-bs-toggle="dropdown">
                             <i class="fa fa-bell"></i>
                             {% if unread_count > 0 %}
                             <span
@@ -97,7 +97,7 @@
                     </li>
                            <!-- Profile + Logout -->
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('userprofile', username=username) }}">
+                        <a class="nav-link rounded-pill" href="{{ url_for('userprofile', username=username) }}">
                             {{ username }}
                         </a>
                     </li>
@@ -107,10 +107,10 @@
                     {% else %}
                     <!-- Login / Register -->
                     <li class="nav-item">
-                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#loginModal">Login</a>
+                        <a class="nav-link rounded-pill" href="#" data-bs-toggle="modal" data-bs-target="#loginModal">Login</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#registerModal">Register</a>
+                        <a class="nav-link rounded-pill" href="#" data-bs-toggle="modal" data-bs-target="#registerModal">Register</a>
                     </li>
                     {% endif %}
 
@@ -129,7 +129,7 @@
 
         <!-- ===== Home Category ===== -->
         <li class="nav-item">
-            <a class="nav-link d-flex align-items-center" href="{{ url_for('index') }}">
+            <a class="nav-link rounded-pill d-flex align-items-center" href="{{ url_for('index') }}">
                 <i class="fa fa-home me-2"></i>
                 Home
             </a>
@@ -138,7 +138,7 @@
 
         <!-- ===== User Profile ===== -->
         <li class="nav-item ">
-            <a class="nav-link d-flex align-items-center" href="{{ url_for('userprofile', username = username) }}">
+            <a class="nav-link rounded-pill d-flex align-items-center" href="{{ url_for('userprofile', username = username) }}">
                 <img src="{{ current_user_profile_pic }}" alt="Profile" class="rounded-circle me-2" width="32" height="32">
                 <span>{{ username }}</span>
             </a>
@@ -151,27 +151,15 @@
         <hr class="mt-0 p-0">
 
         <!-- ===== Community Section ===== -->
-        <li class="nav-item">
-            <a class="nav-link d-flex align-items-center" data-bs-toggle="collapse" href="#communityMenu">
+        <li class="d-flex justify-content-center">
+            <a class=" btn btn-outline-primary rounded-pill d-inline-block" style = "padding-top: 4px; padding-bottom: 4px;" href = "{{ url_for('explore')}} ">
                 <i class="fa fa-compass me-2"></i>
                 Explore
             </a>
-            <div class="collapse" id="communityMenu">
-                <ul class="nav flex-column ms-3">
-                    {% for community in global_communities %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('community', community_id=community['community_id']) }}">
-                            <i class="fa fa-hashtag me-2"></i>
-                            {{ community['name'] }}
-                        </a>
-                    </li>
-                    {% endfor %}
-                </ul>
-            </div>
         </li>
 
         <li class="nav-item">
-            <a class="nav-link d-flex align-items-center" data-bs-toggle="collapse" href="#usercommunityMenu">
+            <a class="nav-link rounded-pill d-flex align-items-center" data-bs-toggle="collapse" href="#usercommunityMenu">
                 <i class="fa fa-users me-2"></i>
                 Communities
             </a>
@@ -179,7 +167,7 @@
                 <ul class="nav flex-column ms-3">
                     {% for community in user_communities %}
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('community', community_id=community['community_id']) }}">
+                        <a class="nav-link rounded-pill" href="{{ url_for('community', community_id=community['community_id']) }}">
                             <i class="fa fa-hashtag me-2"></i>
                             {{ community['name'] }}
                         </a>
@@ -196,34 +184,37 @@
 
         <!-- ===== Social Section ===== -->
         <li class="nav-item">
-            <a class="nav-link d-flex align-items-center" href="{{ url_for('find_a_friend_hub') }}">
+            <a class="nav-link rounded-pill d-flex align-items-center" href="{{ url_for('find_a_friend_hub') }}">
                 <i class="fa fa-user-friends me-2"></i>
                 Find a Friend
             </a>
         </li>
 
         <li class="nav-item">
-            <a class="nav-link d-flex align-items-center" href="{{ url_for('my_messages') }}">
+            <a class="nav-link rounded-pill d-flex align-items-center" href="{{ url_for('my_messages') }}">
                 <i class="fa fa-envelope me-2"></i>
                 Messages
             </a>
         </li>
+                    {% if logged_in %}
 
         <li class="nav-item">
-            <a class="nav-link d-flex align-items-center" href="{{ url_for('calendar') }}">
+            <a class="nav-link rounded-pill d-flex align-items-center" href="{{ url_for('calendar') }}">
                 <i class="fa fa-calendar me-2"></i>
                 Calendar
             </a>
         </li>
 
         <!-- ===== Logout ===== -->
-        <li class="mt-5">
-            <a class=" btn d-flex align-items-center justify-content-end" href="{{ url_for('logout') }}">
+        <li class="mt-5 d-flex  justify-content-end">
+            <a class=" btn btn-primary d-inline-block rounded-pill align-items-center justify-content-end" style = "padding-top: 4px; padding-bottom: 4px;" href="{{ url_for('logout') }}">
                 <i class="fa fa-sign-out me-2"></i>
                 Logout
             </a>
         </li>
+                            {% else %}
 
+                    {% endif %}
     </ul>
 </nav>
 

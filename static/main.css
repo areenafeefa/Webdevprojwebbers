@@ -29,7 +29,7 @@
   --color-darkest: #1B1B1E;
   --color-dark:    #293552;
   --color-accent:  #046271;
-  --color-light:   #A9BCD0;
+  --color-light:   #bfc8d1;
   --color-lighter: #e7e9f0;
 
   --color-bg: var(--color-lighter);
@@ -141,7 +141,7 @@ a:hover { color: var(--color-primary-hover); }
   border-radius: var(--radius-sm);
 }
 #sidebar li a:hover { background: var(--color-light); color: var(--color-dark); }
-#sidebar li a.active { background: var(--color-primary); color: var(--color-surface); font-weight: 500; }
+#sidebar li a.active { background: var(--color-primary); color: var(--color-surface); }
 
 @media (min-width: 992px) {
   #layoutWrapper.sidebar-collapsed #sidebar {

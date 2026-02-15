@@ -1845,6 +1845,31 @@ def delete_message(message_id):
 
 # Explore page - show all communities except the ones user is already in
 
+@app.route('/explore')
+def explore():
+    conn = get_db()
+
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+
+    user_id = session['user_id']
+
+    communities = conn.execute("""
+        SELECT *
+        FROM communities
+        WHERE community_id NOT IN (
+            SELECT community_id
+            FROM community_members
+            WHERE user_id = ?
+        )
+        ORDER BY name ASC
+    """, (user_id,)).fetchall()
+
+    return render_template(
+        'explore.html',
+        communities=communities
+    )
+
 # ==========================================
 # === FIND A FRIEND & GAMES (Phoebe) ===
 # ==========================================
@@ -3302,6 +3327,48 @@ def handle_live_chat_message(data):
 def on_join(data):
     room = str(data.get('room'))
     join_room(room)
+
+@app.route('/friend/request/<username>', methods=['POST'])
+def send_friend_request_live(username):
+    if 'username' not in session:
+        return redirect(url_for('login'))
+
+    conn = get_db()
+
+    requester_id = conn.execute(
+        "SELECT user_id FROM users WHERE username=?",
+        (session['username'],)
+    ).fetchone()['user_id']
+
+    target = conn.execute(
+        "SELECT user_id FROM users WHERE username=?",
+        (username,)
+    ).fetchone()
+
+    if not target:
+        return "User not found"
+
+    try:
+        conn.execute("""
+            INSERT INTO friends (requester_id, addressee_id, status)
+            VALUES (?, ?, 'pending')
+        """, (requester_id, target['user_id']))
+        conn.commit()
+        
+        # Notify the recipient
+        create_notification(
+            user_id=target['user_id'],
+            actor_id=requester_id,
+            notif_type='friend_request',
+            message=f"{session['username']} sent you a friend request",
+            link=url_for('notifications_page'), # Redirect to notifications page to accept/decline
+            reference_id=requester_id # using reference_id as the requester_id can be useful
+        )
+        
+    except sqlite3.IntegrityError:
+        pass  # already exists
+
+    return redirect(url_for('live_chat', username=username))
 
 # Register the filter
 app.jinja_env.filters["timeago"] = timeago
