@@ -120,20 +120,6 @@ def get_local_timestamp():
     singapore_time = utc_now + timedelta(hours=8)
     return singapore_time.strftime('%Y-%m-%d %H:%M:%S')
 
-def get_intersection_cells():
-    """FIX #2: Crossword intersections"""
-    across_cells = set()
-    down_cells = set()
-    
-    for (r, c), (word, direction, clue) in CROSSWORD_LAYOUT.items():
-        if direction == 'across':
-            for i in range(len(word)):
-                across_cells.add((r, c + i))
-        else:
-            for i in range(len(word)):
-                down_cells.add((r + i, c))
-    
-    return across_cells & down_cells
 
 # --- Routes ---
 # Home page
@@ -171,7 +157,6 @@ app.jinja_env.globals.update(
     get_notifications=get_notifications
 )
 
-@app.route('/')
 @app.route('/')
 def index():
     conn = get_db()
@@ -227,13 +212,21 @@ def index():
         new_question = random.choice(prompt_options)
         
         # Find a valid Community ID (fallback to 1 or create 'General')
-        comm_row = conn.execute("SELECT community_id FROM communities LIMIT 1").fetchone()
+                # FIXED: Always use "General" community for daily prompts
+        comm_row = conn.execute("""
+            SELECT community_id FROM communities 
+            WHERE name = 'General' 
+            LIMIT 1
+        """).fetchone()
         
         if comm_row:
             target_cid = comm_row['community_id']
         else:
-            # Create a default community if the table is empty
-            cursor = conn.execute("INSERT INTO communities (name, description) VALUES (?, ?)", ('General', 'General discussion'))
+            # Create "General" community if it doesn't exist
+            cursor = conn.execute("""
+                INSERT INTO communities (name, description) 
+                VALUES (?, ?)
+            """, ('General', 'General discussion'))
             conn.commit()
             target_cid = cursor.lastrowid
 
@@ -254,12 +247,15 @@ def index():
             communities.name AS community_name,
             (SELECT COUNT(*) FROM post_likes WHERE post_id = posts.post_id) AS like_count,
             (SELECT 1 FROM post_likes WHERE post_id = posts.post_id AND user_id = ?) AS user_liked
-        FROM posts
-        JOIN users ON posts.user_id = users.user_id
-        JOIN communities ON posts.community_id = communities.community_id
-        ORDER BY 
-            CASE WHEN post_type = 'daily_prompt' THEN 1 ELSE 0 END DESC, -- Optional: Pins Prompt to top
-            posts.created_at DESC
+            FROM posts
+            JOIN users ON posts.user_id = users.user_id
+            JOIN communities ON posts.community_id = communities.community_id
+            WHERE 
+                (post_type = 'daily_prompt' AND date(posts.created_at) = date('now'))
+                OR post_type != 'daily_prompt'
+            ORDER BY 
+                CASE WHEN post_type = 'daily_prompt' THEN 1 ELSE 0 END DESC,
+                posts.created_at DESC
     """, (user_id,)).fetchall()
 
     # 5️⃣ [ORIGINAL] Get sidebar data
@@ -1911,16 +1907,70 @@ MUSIC_ROUNDS = [
 # Grid Size needed: 10x10
 
 CROSSWORD_LAYOUT = {
-    # ACROSS
-    (0, 2): ("TAEHYUN", "across", "Logical member (7)"), 
-    (5, 0): ("BEOMGYU", "across", "Mood maker (7)"),
-    (8, 3): ("BIGHIT", "across", "The Label (6)"),
-
-    # DOWN
-    (0, 6): ("YEONJUN", "down", "Legendary trainee (7)"), # Intersects TAEHYUN at 'Y', BEOMGYU at 'U'
-    (4, 2): ("MOA", "down", "Fandom Name (3)"),           # Intersects BEOMGYU at 'O'
-    (5, 7): ("FIVE", "down", "Member count (4)"),         # Intersects BIGHIT at 'I'
+    # Format: (row, col): letter
+    # TAEHYUN - across from (0,2) to (0,8)
+    (0, 2): ('T', 'across', 'TAEHYUN', 'Logical member'),
+    (0, 3): ('A', 'across', 'TAEHYUN', 'Logical member'),
+    (0, 4): ('E', 'across', 'TAEHYUN', 'Logical member'),
+    (0, 5): ('H', 'across', 'TAEHYUN', 'Logical member'),
+    (0, 6): ('Y', 'across', 'TAEHYUN', 'Logical member'),
+    (0, 7): ('U', 'across', 'TAEHYUN', 'Logical member'),
+    (0, 8): ('N', 'across', 'TAEHYUN', 'Logical member'),
+    
+    # TXT - down from (1,2) to (2,2)
+    (1, 2): ('X', 'down', 'TXT', 'Kpop group debuted 2019'),
+    (2, 2): ('T', 'down', 'TXT', 'Kpop group debuted 2019'),
+    
+    # FROST - across from (2,4) to (2,8)
+    (2, 4): ('F', 'across', 'FROST', 'Song in Chaos Chapter'),
+    (2, 5): ('R', 'across', 'FROST', 'Song in Chaos Chapter'),
+    (2, 6): ('O', 'across', 'FROST', 'Song in Chaos Chapter'),
+    (2, 7): ('S', 'across', 'FROST', 'Song in Chaos Chapter'),
+    (2, 8): ('T', 'across', 'FROST', 'Song in Chaos Chapter'),
+    
+    # YEONJUN - down from (0,6) to (6,6)
+    (1, 6): ('E', 'down', 'YEONJUN', 'Legendary trainee'),
+    (2, 6): ('O', 'down', 'YEONJUN', 'Legendary trainee'),  # Intersects FROST
+    (3, 6): ('N', 'down', 'YEONJUN', 'Legendary trainee'),
+    (4, 6): ('J', 'down', 'YEONJUN', 'Legendary trainee'),
+    (5, 6): ('U', 'down', 'YEONJUN', 'Legendary trainee'),
+    (6, 6): ('N', 'down', 'YEONJUN', 'Legendary trainee'),
+    
+    # BEOMGYU - across from (5,0) to (5,6)
+    (5, 0): ('B', 'across', 'BEOMGYU', 'Mood maker'),
+    (5, 1): ('E', 'across', 'BEOMGYU', 'Mood maker'),
+    (5, 2): ('O', 'across', 'BEOMGYU', 'Mood maker'),
+    (5, 3): ('M', 'across', 'BEOMGYU', 'Mood maker'),
+    (5, 4): ('G', 'across', 'BEOMGYU', 'Mood maker'),
+    (5, 5): ('Y', 'across', 'BEOMGYU', 'Mood maker'),
+    (5, 6): ('U', 'across', 'BEOMGYU', 'Mood maker'),  # Intersects YEONJUN
+    
+    # MOA - down from (4,2) to (6,2)
+    (4, 2): ('M', 'down', 'MOA', 'Fandom name'),
+    (6, 2): ('A', 'down', 'MOA', 'Fandom name'),
 }
+
+# Helper to get all cells for the grid
+def get_all_crossword_cells():
+    """Returns set of all valid cells (r,c) in the crossword"""
+    return set(CROSSWORD_LAYOUT.keys())
+
+# Helper to get word groups for validation
+def get_crossword_words():
+    """Returns dictionary of word_id -> {cells, word, direction, clue}"""
+    words = {}
+    for cell, (letter, direction, word, clue) in CROSSWORD_LAYOUT.items():
+        word_id = f"{word}_{direction}"
+        if word_id not in words:
+            words[word_id] = {
+                'cells': [],
+                'word': word,
+                'direction': direction,
+                'clue': clue
+            }
+        words[word_id]['cells'].append(cell)
+    return words
+
 
 # Ensure Game Messages Table Exists (Run once)
 def init_game_tables():
@@ -1968,31 +2018,33 @@ def update_streak(user_id, game):
     conn.execute(f"UPDATE user_stats SET {col_streak}=?, {col_date}=? WHERE user_id=?", (new_streak, today, user_id))
     conn.commit()
 
+# --- HELPER: Checks if a game is completed ---
 def get_game_status(user_id, game_type):
     if game_type == 'live_chat': return "available"
 
     conn = get_db()
-    today = get_utc_today()
+    today = datetime.now(timezone.utc).date().isoformat()
+    
+    # [FIX] Map 'guess_song' to 'song' so we check the right DB column
     db_game_name = 'song' if game_type == 'guess_song' else game_type
     
-    stats = conn.execute("SELECT * FROM user_stats WHERE user_id=?", (user_id,)).fetchone()
+    # Check if we played today
+    stats = conn.execute(f"SELECT last_{db_game_name}_date FROM user_stats WHERE user_id=?", (user_id,)).fetchone()
     
-    # 1. Check if completed today
-    try:
-        if stats and stats[f'last_{db_game_name}_date'] == today:
-            return "completed"
-    except: pass
+    if stats and stats[f'last_{db_game_name}_date'] == today:
+        return "completed"
 
-    # 2. Check if currently in an active multiplayer session (Bingo doesn't have sessions like this)
+    # Check if a session is currently active (waiting for partner)
     if game_type != 'bingo':
         active = conn.execute("""
             SELECT 1 FROM game_sessions 
             WHERE game_type=? AND (player_1_id=? OR player_2_id=?) AND status='active'
         """, (game_type, user_id, user_id)).fetchone()
-        if active:
+        if active: 
             return "in_progress"
             
     return "available"
+
 
 def find_match_priority(conn, user_id, game_type):
     user = conn.execute("SELECT age FROM users WHERE user_id = ?", (user_id,)).fetchone()
@@ -2013,7 +2065,7 @@ def find_match_priority(conn, user_id, game_type):
             JOIN users u ON s.player_1_id = u.user_id
             WHERE s.game_type=? AND s.player_2_id IS NULL AND s.status='active' 
             AND s.player_1_id != ? {target_condition}
-            ORDER BY s.created_at DESC LIMIT 1
+            ORDER BY s.created_at ASC LIMIT 1
         """
         match = conn.execute(query, (game_type, user_id)).fetchone()
         if match: return match
@@ -2023,9 +2075,9 @@ def find_match_priority(conn, user_id, game_type):
         FROM game_sessions s
         WHERE s.game_type=? AND s.player_2_id IS NULL AND s.status='active' 
         AND s.player_1_id != ?
-        ORDER BY s.created_at DESC LIMIT 1
+        ORDER BY s.created_at ASC LIMIT 1
     """, (game_type, user_id)).fetchone()
-
+    
 # --- 3. GAME ROUTES ---
 
 @app.route('/find-a-friend')
@@ -2047,6 +2099,7 @@ def find_a_friend_hub():
     # Fix: Ensure key matches what template expects
     return render_template('find_a_friend.html', stats=stats, status=status)
 
+# --- ROUTE: Game Start Page ---
 @app.route('/game/start/<game_type>')
 def game_start_page(game_type):
     if 'user_id' not in session: return redirect(url_for('login'))
@@ -2054,61 +2107,34 @@ def game_start_page(game_type):
     uid = session['user_id']
     
     stats = conn.execute("SELECT * FROM user_stats WHERE user_id=?", (uid,)).fetchone()
-    if not stats: stats = {'streak_bingo':0, 'streak_crossword':0, 'streak_song':0}
+    if not stats: 
+        stats = {'streak_bingo':0, 'streak_crossword':0, 'streak_song':0}
     
     status = get_game_status(uid, game_type)
     
-    # [FIX] Force Bingo to be available so users can keep playing
+    # [FIX] BINGO EXCEPTION: Always allow Bingo, even if 'completed'
     if game_type == 'bingo':
         status = 'available'
 
-    # [FIX] Filter Activity by Game Type
+    # Fetch Friend Activity (Only needed for Bingo)
+    activity = []
     if game_type == 'bingo':
-        # Show Bingo activity
         try:
-            # Try fetching with created_at if it exists
-            activity_query = """
+            raw_activity = conn.execute("""
                 SELECT u.username, b.note, b.created_at, b.task_id 
-                FROM bingo_progress b 
-                JOIN users u ON b.user_id = u.user_id 
-                WHERE b.user_id != ? 
-                ORDER BY b.created_at DESC LIMIT 5
-            """
-            raw_activity = conn.execute(activity_query, (uid,)).fetchall()
-        except sqlite3.OperationalError:
-            # Fallback for older DB schemas
-            activity_query = """
-                SELECT u.username, b.note, b.task_id 
-                FROM bingo_progress b 
-                JOIN users u ON b.user_id = u.user_id 
-                WHERE b.user_id != ? 
-                LIMIT 5
-            """
-            raw_activity = conn.execute(activity_query, (uid,)).fetchall()
+                FROM bingo_progress b JOIN users u ON b.user_id = u.user_id 
+                WHERE b.user_id != ? ORDER BY b.created_at DESC LIMIT 5
+            """, (uid,)).fetchall()
+        except:
+            raw_activity = []
         
-        activity = []
         for row in raw_activity:
             task_name = next((t['task'] for t in BINGO_TASKS if t['id'] == row['task_id']), "Task")
-            
-            # Combine Task + Note for the start page list
             note_content = f"Completed: {task_name}"
-            if row['note']:
-                note_content += f" — \"{row['note']}\""
-            
-            # Safely handle missing time
-            time_val = row['created_at'] if 'created_at' in row.keys() else ""
+            if row['note']: note_content += f" — \"{row['note']}\""
+            activity.append({'username': row['username'], 'note': note_content})
 
-            activity.append({
-                'username': row['username'],
-                'note': note_content, 
-                'created_at': time_val
-            })
-            
-    else:
-        # No game history needed
-        activity = []
-
-    return render_template('game_start.html', game=game_type, stats=stats, status=status)
+    return render_template('game_start.html', game=game_type, stats=stats, status=status, activity=activity)
 
 @app.route('/lobby/<game>')
 def game_lobby(game):
@@ -2119,14 +2145,24 @@ def game_lobby(game):
     conn = get_db()
     uid = session['user_id']
     
-    # Clean ghost sessions (older than 5 minutes)
-    conn.execute("""
-        DELETE FROM game_sessions 
-        WHERE game_type = ? 
-        AND player_1_id = ? 
-        AND player_2_id IS NULL 
-        AND created_at < datetime('now', '-5 minutes')
-    """, (game, uid))
+    # [FIX] Clean ghost sessions but KEEP Crossword sessions active for longer (24h)
+    # This prevents Crossword progress from being deleted if they leave the page
+    if game == 'crossword':
+        conn.execute("""
+            DELETE FROM game_sessions 
+            WHERE game_type = ? 
+            AND player_1_id = ? 
+            AND player_2_id IS NULL 
+            AND created_at < datetime('now', '-24 hours')
+        """, (game, uid))
+    else:
+        conn.execute("""
+            DELETE FROM game_sessions 
+            WHERE game_type = ? 
+            AND player_1_id = ? 
+            AND player_2_id IS NULL 
+            AND created_at < datetime('now', '-10 minutes')
+        """, (game, uid))
     conn.commit()
     
     # Check if already in active game
@@ -2138,7 +2174,6 @@ def game_lobby(game):
     """, (game, uid, uid)).fetchone()
     
     if existing and existing['player_2_id']:
-        # Already matched - go directly to game
         return redirect(url_for(f'game_{game}_play'))
     
     # Try to find a match
@@ -2150,6 +2185,9 @@ def game_lobby(game):
         conn.execute("UPDATE game_sessions SET player_2_id=? WHERE session_id=?", (uid, sid))
         conn.commit()
         
+        # [FIX] Notify Player 1 that a match is found
+        socketio.emit('match_found', {'game_type': game, 'session_id': sid}, room=str(sid))
+        
         return redirect(url_for(f'game_{game}_play'))
     
     # No match found - create waiting session
@@ -2160,151 +2198,90 @@ def game_lobby(game):
     else:
         sid = existing['session_id']
     
-    # Show waiting page (simple page)
     return render_template('lobby.html', game=game, session_id=sid)
 
-def get_crossword_grid():
-    """Generate 30x25 grid"""
-    grid = {}
-    for (r, c), (word, direction, clue) in CROSSWORD_LAYOUT.items():
-        for i, letter in enumerate(word):
-            if direction == "across":
-                grid[(r, c + i)] = letter.upper()
-            else:
-                grid[(r + i, c)] = letter.upper()
-    return grid
-
-def get_editable_cells_for_role(role):
-    """
-    FIX #2: Returns set of (row, col) that a player can edit
-    INTERSECTIONS are editable by BOTH players
-    """
-    editable = set()
-    
-    for (r, c), (word, direction, clue) in CROSSWORD_LAYOUT.items():
-        if role == 'p1' and direction == 'across':
-            for i in range(len(word)):
-                editable.add((r, c + i))
-        elif role == 'p2' and direction == 'down':
-            for i in range(len(word)):
-                editable.add((r + i, c))
-    
-    return editable
-
-def get_intersection_cells():
-    """FIX #2: Get all cells that are intersections (editable by both)"""
-    across_cells = set()
-    down_cells = set()
-    
-    for (r, c), (word, direction, clue) in CROSSWORD_LAYOUT.items():
-        if direction == 'across':
-            for i in range(len(word)):
-                across_cells.add((r, c + i))
-        else:
-            for i in range(len(word)):
-                down_cells.add((r + i, c))
-    
-    # Intersections are cells in BOTH sets
-    return across_cells & down_cells 
 
 @app.route('/play/crossword')
 def game_crossword_play():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-
+    if 'user_id' not in session: return redirect(url_for('login'))
     conn = get_db()
     uid = session['user_id']
-
-    # --- 1. GHOST USER PROTECTION (Fixes IntegrityError) ---
-    # If you reset the DB, this prevents the crash by logging you out automatically
-    user_exists = conn.execute("SELECT 1 FROM users WHERE user_id = ?", (uid,)).fetchone()
-    if not user_exists:
-        session.clear()
-        flash("Session expired. Please login again.", "warning")
-        return redirect(url_for('login'))
-    # -------------------------------------------------------
-
-    # Clean ghost sessions
-    conn.execute("""
-        DELETE FROM game_sessions 
-        WHERE game_type = 'crossword' 
-        AND player_1_id = ? 
-        AND player_2_id IS NULL 
-        AND created_at < datetime('now', '-5 minutes')
-    """, (uid,))
-    conn.commit()
-
-    # Find active session with REAL partner
-    session_check = conn.execute("""
-        SELECT * FROM game_sessions
-        WHERE (player_1_id = ? OR player_2_id = ?)
-        AND game_type = 'crossword'
-        AND status = 'active'
-        AND player_2_id IS NOT NULL
+    
+    # 1. Get active game
+    game_session = conn.execute("""
+        SELECT * FROM game_sessions 
+        WHERE (player_1_id = ? OR player_2_id = ?) 
+        AND game_type = 'crossword' 
+        AND status IN ('active', 'completed')
         ORDER BY created_at DESC LIMIT 1
     """, (uid, uid)).fetchone()
+    
+    if not game_session: return redirect(url_for('game_lobby', game='crossword'))
+    if not game_session['player_2_id']: return redirect(url_for('game_lobby', game='crossword'))
+    
+    session_id = game_session['session_id']
+    my_role = 'p1' if game_session['player_1_id'] == uid else 'p2'
+    
+    partner_id = game_session['player_2_id'] if my_role == 'p1' else game_session['player_1_id']
+    partner = conn.execute("SELECT username FROM users WHERE user_id = ?", (partner_id,)).fetchone()
+    
+    # [FIX 1] Hardcoded Intersections
+    intersections = {(2, 6), (5, 6), (5, 2)} 
 
-    if not session_check:
-        return redirect(url_for('game_lobby', game='crossword'))
+    editable_cells = []
+    for cell, (letter, direction, word, clue) in CROSSWORD_LAYOUT.items():
+        if (my_role == 'p1' and direction == 'across'):
+            editable_cells.append(cell)
+        elif (my_role == 'p2' and direction == 'down'):
+            editable_cells.append(cell)
+        elif cell in intersections:
+            editable_cells.append(cell)
 
-    session_id = session_check['session_id']
-    partner_id = session_check['player_2_id'] if session_check['player_1_id'] == uid else session_check['player_1_id']
-    
-    partner = conn.execute("SELECT username FROM users WHERE user_id=?", (partner_id,)).fetchone()
-    
-    my_role = 'p1' if session_check['player_1_id'] == uid else 'p2'
-    
-    # Get grid state
-    grid_state_row = conn.execute("""
-        SELECT grid_state, words_found FROM crossword_states WHERE session_id = ?
-    """, (session_id,)).fetchone()
-    
-    current_state = {}
-    words_found = []
-    
-    if grid_state_row:
-        current_state = json.loads(grid_state_row['grid_state']) if grid_state_row['grid_state'] else {}
-        words_found = json.loads(grid_state_row['words_found']) if grid_state_row['words_found'] else []
-    
-    # Get chat history
+    # Get State
+    state_row = conn.execute("SELECT grid_state, words_found FROM crossword_states WHERE session_id = ?", (session_id,)).fetchone()
+    current_state = json.loads(state_row['grid_state']) if state_row and state_row['grid_state'] else {}
+    words_found = json.loads(state_row['words_found']) if state_row and state_row['words_found'] else []
+
+    # Chat History
     chat_history = conn.execute("""
-        SELECT u.username, gm.content 
-        FROM game_messages gm
-        JOIN users u ON gm.user_id = u.user_id
-        WHERE gm.session_id = ?
-        ORDER BY gm.created_at ASC
+        SELECT u.username, m.content FROM game_messages m
+        JOIN users u ON m.user_id = u.user_id WHERE m.session_id = ? ORDER BY m.created_at ASC
     """, (session_id,)).fetchall()
+
+    # Layout Data for JS
+    layout_data = {}
+    for (r, c), (l, d, w, clue) in CROSSWORD_LAYOUT.items():
+        layout_data[f"{r},{c}"] = {'letter': l, 'direction': d, 'word': w}
     
-    layout = get_crossword_grid()
+    # [FIX 2] Generate "all_words" CORRECTLY (All words, not just mine)
+    all_words_set = set()
+    for (r, c), (l, d, w, clue) in CROSSWORD_LAYOUT.items():
+        word_id = f"{w}_{d}" # Unique ID: e.g., "FROST_across"
+        all_words_set.add(word_id)
+    all_words = list(all_words_set)
     
-    # Get clues
+    # Generate My Clues
     my_clues = []
-    for (r, c), (word, direction, clue) in CROSSWORD_LAYOUT.items():
-        if (my_role == 'p1' and direction == 'across') or (my_role == 'p2' and direction == 'down'):
-            my_clues.append({
-                'word': word,
-                'clue': clue,
-                'start_r': r,
-                'start_c': c,
-                'direction': direction
-            })
-    
-    # Get editable cells
-    editable_cells = list(get_editable_cells_for_role(my_role))
-    intersection_cells = list(get_intersection_cells())
-    
+    seen_clue_words = set()
+    for (r,c), (l, d, w, clue) in CROSSWORD_LAYOUT.items():
+        if w not in seen_clue_words:
+            if (my_role == 'p1' and d == 'across') or (my_role == 'p2' and d == 'down'):
+                my_clues.append({'word': w, 'clue': clue})
+                seen_clue_words.add(w)
+
     return render_template('crossword.html',
                         session_id=session_id,
                         partner_name=partner['username'] if partner else "Partner",
-                        partner_id=partner_id,
                         my_role=my_role,
-                        layout=list(layout.keys()), # <--- FIX: Added list() wrapper here
+                        layout=set(CROSSWORD_LAYOUT.keys()),
+                        layout_data=layout_data,
                         current_state=current_state,
                         words_found=words_found,
+                        all_words=all_words, # Now contains ALL words
                         chat_history=chat_history,
                         my_clues=my_clues,
-                        editable_cells=editable_cells,
-                        intersection_cells=intersection_cells)
+                        editable_cells=editable_cells)
+        
 # SOCKET HANDLER
 
 @socketio.on('check_for_match')
@@ -2325,95 +2302,33 @@ def check_for_match(data):
 
 @socketio.on('crossword_move')
 def handle_crossword_move(data):
-    """Handle letter input with error checking"""
-    
-    # Validate data
-    if not data or not isinstance(data, dict):
-        return
-    
     session_id = data.get('session_id')
     row = data.get('row')
     col = data.get('col')
-    letter = data.get('letter')
-    
-    # Check required fields
-    if session_id is None or row is None or col is None:
-        return
-    
-    # Handle undefined/empty letter
-    if letter is None or letter == 'undefined' or letter == '':
-        letter = ''
-    else:
-        letter = str(letter).upper()
+    letter = data.get('letter', '')
     
     conn = get_db()
     
-    # Get current state
-    state_row = conn.execute("""
-        SELECT grid_state, words_found FROM crossword_states WHERE session_id = ?
-    """, (session_id,)).fetchone()
+    # Save to DB
+    state_row = conn.execute("SELECT grid_state FROM crossword_states WHERE session_id = ?", (session_id,)).fetchone()
+    grid_state = json.loads(state_row['grid_state']) if state_row else {}
+    
+    cell_key = f"{row}_{col}"
+    if letter: grid_state[cell_key] = letter
+    else: grid_state.pop(cell_key, None)
     
     if state_row:
-        grid_state = json.loads(state_row['grid_state']) if state_row['grid_state'] else {}
-        words_found = json.loads(state_row['words_found']) if state_row['words_found'] else []
+        conn.execute("UPDATE crossword_states SET grid_state = ? WHERE session_id = ?", (json.dumps(grid_state), session_id))
     else:
-        grid_state = {}
-        words_found = []
-    
-    # Update grid
-    key = f"{row}_{col}"
-    if letter:
-        grid_state[key] = letter
-    else:
-        grid_state.pop(key, None)
-    
-    # Check for completed words
-    for (start_r, start_c), (word, direction, clue) in CROSSWORD_LAYOUT.items():
-        word_id = f"{start_r}_{start_c}_{direction}"
-        
-        if word_id in words_found:
-            continue
-        
-        is_complete = True
-        word_cells = []
-        
-        for i, expected_letter in enumerate(word):
-            if direction == "across":
-                cell_key = f"{start_r}_{start_c + i}"
-                cell_pos = (start_r, start_c + i)
-            else:
-                cell_key = f"{start_r + i}_{start_c}"
-                cell_pos = (start_r + i, start_c)
-            
-            word_cells.append({"r": cell_pos[0], "c": cell_pos[1]})
-            
-            if grid_state.get(cell_key, '').upper() != expected_letter.upper():
-                is_complete = False
-                break
-        
-        if is_complete:
-            words_found.append(word_id)
-            
-            emit('word_complete', {
-                'word': word,
-                'cells': word_cells,
-                'found': len(words_found),
-                'total': len(CROSSWORD_LAYOUT)
-            }, room=str(session_id))
-    
-    # Save state
-    conn.execute("""
-        INSERT OR REPLACE INTO crossword_states (session_id, grid_state, words_found, last_updated) 
-        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-    """, (session_id, json.dumps(grid_state), json.dumps(words_found)))
+        conn.execute("INSERT INTO crossword_states (session_id, grid_state) VALUES (?, ?)", (session_id, json.dumps(grid_state)))
     conn.commit()
     
-    # FIX: Broadcast to partner (don't send back to sender)
+    # [FIX] Broadcast to room=str(session_id) so the partner sees it
     emit('update_grid', {
-        'row': row, 
-        'col': col, 
+        'row': row,
+        'col': col,
         'letter': letter
-    }, room=str(session_id), include_self=False) 
+    }, room=str(session_id), skip_sid=request.sid)
 
 @socketio.on('send_crossword_reminder')
 def send_crossword_reminder(data):
@@ -2563,21 +2478,24 @@ def fetch_songs_from_itunes():
     return songs
 
 @app.route('/play/guess_song')
+@app.route('/play/guess_song')
 def game_guess_song_play():
-    if 'user_id' not in session:
-        return redirect(url_for('login'))
-
+    if 'user_id' not in session: return redirect(url_for('login'))
     conn = get_db()
     uid = session['user_id']
+    
+    # [FIX] 1. Daily Lock Check
+    # If the user has already played today, bounce them back to the start screen.
+    today = datetime.now(timezone.utc).date().isoformat()
+    stats = conn.execute("SELECT last_song_date, streak_song FROM user_stats WHERE user_id=?", (uid,)).fetchone()
+    
+    if stats and stats['last_song_date'] == today:
+         # Pass current streak so the page doesn't crash
+         current_streak = stats['streak_song'] if stats else 0
+         return render_template('game_start.html', game='guess_song', stats={'streak_song': current_streak}, status='completed')
 
-    # 1. GHOST USER PROTECTION
-    user_exists = conn.execute("SELECT 1 FROM users WHERE user_id = ?", (uid,)).fetchone()
-    if not user_exists:
-        session.clear()
-        flash("Session expired. Please login again.", "warning")
-        return redirect(url_for('login'))
-
-    # 2. Clean ghost SESSIONS
+    # [FIX] 2. Ghost Cleanup
+    # Clean up old sessions that never started (older than 5 minutes)
     conn.execute("""
         DELETE FROM game_sessions 
         WHERE game_type = 'guess_song' 
@@ -2587,33 +2505,44 @@ def game_guess_song_play():
     """, (uid,))
     conn.commit()
 
-    # 3. Find active session
+    # 3. Find Active Session
+    # Look for a game where the user is P1 or P2, and it is currently active.
     session_check = conn.execute("""
         SELECT * FROM game_sessions
         WHERE (player_1_id = ? OR player_2_id = ?)
         AND game_type = 'guess_song'
         AND status = 'active'
-        AND player_2_id IS NOT NULL
         ORDER BY created_at DESC LIMIT 1
     """, (uid, uid)).fetchone()
 
+    # If no active session exists, send them to the lobby to find a match.
     if not session_check:
         return redirect(url_for('game_lobby', game='guess_song'))
 
+    # If session exists but is waiting for a player (should be handled by lobby, but safety check)
+    if not session_check['player_2_id']:
+        return redirect(url_for('game_lobby', game='guess_song'))
+
     session_id = session_check['session_id']
-    
-    # 4. LOAD OR FETCH DATA
+
+    # 4. Get Partner Name
+    partner_id = session_check['player_2_id'] if session_check['player_1_id'] == uid else session_check['player_1_id']
+    partner = conn.execute("SELECT username FROM users WHERE user_id = ?", (partner_id,)).fetchone()
+    partner_name = partner['username'] if partner else "Partner"
+
+    # 5. Load or Fetch Game Data
+    # If data isn't in the DB yet, fetch it from iTunes. Otherwise, load it.
     try:
         game_data_raw = session_check['game_data']
     except IndexError:
         game_data_raw = None
 
     if not game_data_raw:
-        # DATA DOES NOT EXIST: Fetch new
+        # DATA DOES NOT EXIST: Fetch new from iTunes
         print("🎵 Fetching new songs from API...")
         game_data = fetch_songs_from_itunes()
         
-        # Save to database
+        # Save to database so both players see the same songs
         conn.execute("""
             UPDATE game_sessions SET game_data = ? WHERE session_id = ?
         """, (json.dumps(game_data), session_id))
@@ -2623,7 +2552,8 @@ def game_guess_song_play():
         try:
             game_data = json.loads(game_data_raw)
         except:
-            print("⚠️ Corrupt Data: Re-fetching...")
+            # Fallback if JSON is corrupt
+            print("Corrupt Data: Re-fetching...")
             game_data = fetch_songs_from_itunes()
             conn.execute("""
                 UPDATE game_sessions SET game_data = ? WHERE session_id = ?
@@ -2631,8 +2561,9 @@ def game_guess_song_play():
             conn.commit()
 
     return render_template('guess_the_song.html',
-                         session_id=session_id,
-                         game_data=game_data)
+                        session_id=session_id,
+                        game_data=game_data,
+                        partner_name=partner_name)
 
 @socketio.on('submit_crossword')
 def handle_crossword_submit(data):
@@ -2809,7 +2740,7 @@ def game_complete(game_type):
     
     if game_type in ['crossword', 'song']:
         return redirect(url_for('game_result', session_id=sid))
-    return redirect(url_for('find_a_friend_hub'))
+    return jsonify({'status': 'success', 'message': 'Game completed!'})
 
 @app.route('/game/result/<int:session_id>')
 def game_result(session_id):

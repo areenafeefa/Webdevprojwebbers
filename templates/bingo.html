@@ -3,6 +3,66 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='phoebe.css') }}">
 
+<style>
+    /* SQUARED CORNERS - Updated */
+    .bingo-cell {
+        aspect-ratio: 1;
+        background: white;
+        border: 2px solid #e9ecef;
+        border-radius: 0;  /* CHANGED: Was 12px */
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 15px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        min-height: 120px;
+    }
+
+    .bingo-cell:hover {
+        border-color: #046271;
+        background-color: #f0f8ff;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(4, 98, 113, 0.15);
+    }
+
+    .bingo-cell.done {
+        background-color: #b8e6ed;
+        border-color: #046271;
+        color: #046271;
+    }
+
+    .bingo-cell.done:hover {
+        background-color: #a8dde5;
+    }
+
+    .bingo-cell h5 {
+        font-size: 1rem;
+        margin: 0 0 8px 0;
+        font-weight: 600;
+    }
+
+    .bingo-cell small {
+        font-size: 0.75rem;
+        color: #6c757d;
+    }
+
+    .bingo-cell.done small {
+        color: #046271;
+    }
+
+    .alert-success {
+        background-color: #b8e6ed !important;
+        color: #046271 !important;
+        border-color: #046271 !important;
+    }
+
+    .alert-success strong {
+        color: #046271 !important;
+    }
+</style>
 
 <div class="game-container">
     <a href="{{ url_for('game_start_page', game_type='bingo') }}" class="btn-back">
@@ -34,7 +94,7 @@
                         
                         <h5 class="fw-bold mb-2">{{ task.task }}</h5>
                         {% if done %}
-                            <small style="color: #155724;">✓ Completed</small>
+                            <small>✓ Completed</small>
                         {% else %}
                             <small class="text-muted">Tap to complete</small>
                         {% endif %}
@@ -50,7 +110,7 @@
                     {% if friends_activity %}
                         {% for act in friends_activity %}
                             <div class="mb-3 pb-3 border-bottom">
-                                <span class="fw-bold text-primary">{{ act.username }}</span>
+                                <span class="fw-bold" style="color: #046271">{{ act.username }}</span>
                                 <span class="small text-muted">completed {{ act.task_name }}</span>
                                 
                                 <div class="bg-light p-3 rounded mt-2 small fst-italic text-muted">
