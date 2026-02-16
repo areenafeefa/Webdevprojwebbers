@@ -35,6 +35,7 @@
 <div class="d-flex align-items-center  mb-2 flex-row btn-primary"
      style="border-radius: 999px;"
      id="userbadge">
+     
 
     <!-- Profile Picture -->
     <img src="{{ current_user_profile_pic }}"
@@ -45,7 +46,7 @@
     <!-- Name / Username -->
     <div class="d-flex flex-column">
         <span class="fw-bold">
-            {{ session.get('display_name') }}
+            {{ session.get('display_name', display_name) }}
         </span>
         <small class="text-small">@{{ username }}</small>
     </div>

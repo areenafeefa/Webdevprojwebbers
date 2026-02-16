@@ -11,7 +11,6 @@
       <div class="d-flex mb-3 {% if msg.sender_id == session['user_id'] %}justify-content-end{% else %}justify-content-start{% endif %}">
         
         {% if msg.sender_id != session['user_id'] %}
-          <img src="{{ url_for('static', filename='profile_pics/default.png') }}" class="rounded-circle me-2" width="40" height="40">
         {% endif %}
 
         <div class="d-flex flex-column {% if msg.sender_id == session['user_id'] %}align-items-end{% else %}align-items-start{% endif %}" style="max-width:70%;">
@@ -115,9 +114,6 @@ socket.on('new_live_message', function(data) {
   const div = document.createElement('div');
 
   div.className = `d-flex mb-3 ${isMe ? 'justify-content-end' : 'justify-content-start'}`;
-
-  div.innerHTML = `
-    ${!isMe ? `<img src="{{ url_for('static', filename='profile_pics/default.png') }}" class="rounded-circle me-2" width="40" height="40">` : ``}
 
     <div class="d-flex flex-column ${isMe ? 'align-items-end' : 'align-items-start'}" style="max-width:70%;">
 
