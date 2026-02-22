@@ -455,6 +455,10 @@ def create_post(community_id=None):
             "SELECT last_insert_rowid() AS id"
         ).fetchone()['id']
 
+        # Notify mentions in post content
+        link = url_for('openpost', post_id=new_post_id)
+        notify_mentions(content, user_id, link, new_post_id)
+
         # --- Event Handling ---
         if post_type == 'event':
 
@@ -643,6 +647,10 @@ def add_comment(post_id):
         post = fetch_post(conn, post_id)
         if post:
             notify_post_owner(post, {'user_id': user_id, 'username': username})
+            
+            # Notify mentions in comment content
+            link = url_for('openpost', post_id=post_id)
+            notify_mentions(content, user_id, link, post_id)
 
         formatted_content = str(mention(content))
         return jsonify({

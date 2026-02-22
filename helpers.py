@@ -707,6 +707,37 @@ def notify_post_owner(post, actor):
         link=url_for("openpost", post_id=post["post_id"]),
         reference_id=post["post_id"]
     )
+
+def notify_mentions(text, actor_id, link, reference_id):
+    if not text:
+        return
+    
+    # Find all @username mentions
+    mentions = re.findall(r'@(\w+)', text)
+    if not mentions:
+        return
+    
+    conn = get_db()
+    # Remove duplicates and query user IDs
+    unique_mentions = list(set(mentions))
+    placeholders = ','.join(['?'] * len(unique_mentions))
+    query = f"SELECT user_id, username FROM users WHERE username IN ({placeholders})"
+    rows = conn.execute(query, unique_mentions).fetchall()
+    
+    actor_row = conn.execute("SELECT username FROM users WHERE user_id = ?", (actor_id,)).fetchone()
+    actor_username = actor_row['username'] if actor_row else "Someone"
+
+    for row in rows:
+        target_user_id = row['user_id']
+        if target_user_id != actor_id:
+            create_notification(
+                user_id=target_user_id,
+                actor_id=actor_id,
+                notif_type="mention",
+                message=f"{actor_username} mentioned you",
+                link=link,
+                reference_id=reference_id
+            )
 def handle_event_unregistration(conn, post, user):
     if post["post_type"] != "event":
         return False
@@ -734,6 +765,10 @@ def handle_comment_submission(conn, post, user):
     conn.commit()
 
     notify_post_owner(post, user)
+    
+    # Notify mentions
+    link = url_for("openpost", post_id=post["post_id"])
+    notify_mentions(content, user["user_id"], link, post["post_id"])
 
     return True
 
